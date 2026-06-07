@@ -1,6 +1,6 @@
 const { enviarMensajeWhatsApp } = require('../helpers/whatsapp-helper');
 const NotificacionMedica = require('../models/notificacionMedica'); // Tu esquema médico en Mongo
-const Consultorio = require('../models/Consultorio');
+const Consultorio = require('../models/consultorio');
 
 // =========================================================================
 // 🌐 EL WEBHOOK: Receptor de órdenes de Laravel (MySQL)
