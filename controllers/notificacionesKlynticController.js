@@ -85,36 +85,47 @@ const borrarTodasLasNotificacionesMedicas = async (req, res) => {
 
 
 
- const enviarRecordatoriosMasivos = async (req, res) => {
+const enviarRecordatoriosMasivos = async (req, res) => {
     try {
-        const { recordatorios } = req.body; // Captura el array enviado por Laravel
+        const { recordatorios } = req.body; 
 
+        // Validación de seguridad para el payload JSON de Laravel
         if (!recordatorios || !Array.isArray(recordatorios)) {
             return res.status(400).json({ status: 'error', message: 'Formato de datos inválido' });
         }
 
-        // 🧠 RESPUESTA INMEDIATA: Liberamos el Shared Hosting de Laravel rápido
-        res.status(200).json({ status: 'ok', message: 'Procesando lote de notificaciones...' });
+        // 🧠 RESPUESTA INMEDIATA: Cerramos la conexión con Laravel en milisegundos
+        res.status(200).json({ status: 'ok', message: 'Procesando lote de notificaciones en Klyntic...' });
 
-        // Procesamos los mensajes en segundo plano dentro de Node.js (Background processing)
+        console.log(`=== 📦 KLYNTIC BULK: Procesando lote de ${recordatorios.length} recordatorios ===`);
+
+        // Procesamos la ráfaga de mensajes en segundo plano dentro de Node.js
         for (const item of recordatorios) {
             const { doctor_id, telefono, mensaje } = item;
 
-            // 1. Buscamos si el consultorio/doctor existe en MongoDB y tiene WhatsApp conectado
+            // 1. Validamos en MongoDB si el consultorio del doctor está CONECTADO
             const consultorio = await Consultorio.findById(doctor_id);
 
             if (consultorio && consultorio.whatsappStatus === 'CONECTADO') {
-                // 2. Aquí ejecutas la función nativa que ya usabas en restaurantes para enviar WhatsApps
-                // Ej: await whatsappClient.sendMessage(`${telefono}@c.us`, mensaje);
-                console.log(`WhatsApp enviado al paciente ${telefono} desde el consultorio ${doctor_id}`);
+                
+                // 🚀 DISPARO REAL: Invocamos al motor de WhatsApp heredado de restaurantes
+                // El helper se encarga de isRegisteredUser, enviar el mensaje y registrar en consola
+                const enviado = await enviarMensajeWhatsApp(doctor_id, telefono, mensaje);
+                
+                if (enviado) {
+                    console.log(`[ÉXITO] Recordatorio enviado al paciente ${telefono} desde el canal del Doctor ID: ${doctor_id}`);
+                } else {
+                    console.log(`[FALLO] No se pudo entregar el mensaje al número ${telefono} a través del helper.`);
+                }
+
             } else {
-                console.log(`No se envió el mensaje. El consultorio ${doctor_id} está desconectado.`);
+                console.log(`[IGNORADO] El consultorio ${doctor_id} está DESCONECTADO. No se puede enviar el mensaje a ${telefono}.`);
             }
         }
 
     } catch (error) {
-        console.error('Error en el bulk de notificaciones Klyntic:', error);
-        // Nota: Como ya respondimos 200, el error se maneja internamente en tus logs de Node/Render
+        // Como ya respondimos 200 a Laravel, los errores se quedan exclusivamente en tu consola local
+        console.error('❌ Error crítico en el bulk de notificaciones Klyntic:', error);
     }
 };
 
