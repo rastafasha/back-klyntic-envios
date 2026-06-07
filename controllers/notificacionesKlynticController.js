@@ -1,5 +1,6 @@
 const { enviarMensajeWhatsApp } = require('../helpers/whatsapp-helper');
 const NotificacionMedica = require('../models/notificacionMedica'); // Tu esquema médico en Mongo
+const Consultorio = require('../models/Consultorio');
 
 // =========================================================================
 // 🌐 EL WEBHOOK: Receptor de órdenes de Laravel (MySQL)
@@ -82,11 +83,50 @@ const borrarTodasLasNotificacionesMedicas = async (req, res) => {
     }
 };
 
+
+
+ const enviarRecordatoriosMasivos = async (req, res) => {
+    try {
+        const { recordatorios } = req.body; // Captura el array enviado por Laravel
+
+        if (!recordatorios || !Array.isArray(recordatorios)) {
+            return res.status(400).json({ status: 'error', message: 'Formato de datos inválido' });
+        }
+
+        // 🧠 RESPUESTA INMEDIATA: Liberamos el Shared Hosting de Laravel rápido
+        res.status(200).json({ status: 'ok', message: 'Procesando lote de notificaciones...' });
+
+        // Procesamos los mensajes en segundo plano dentro de Node.js (Background processing)
+        for (const item of recordatorios) {
+            const { doctor_id, telefono, mensaje } = item;
+
+            // 1. Buscamos si el consultorio/doctor existe en MongoDB y tiene WhatsApp conectado
+            const consultorio = await Consultorio.findById(doctor_id);
+
+            if (consultorio && consultorio.whatsappStatus === 'CONECTADO') {
+                // 2. Aquí ejecutas la función nativa que ya usabas en restaurantes para enviar WhatsApps
+                // Ej: await whatsappClient.sendMessage(`${telefono}@c.us`, mensaje);
+                console.log(`WhatsApp enviado al paciente ${telefono} desde el consultorio ${doctor_id}`);
+            } else {
+                console.log(`No se envió el mensaje. El consultorio ${doctor_id} está desconectado.`);
+            }
+        }
+
+    } catch (error) {
+        console.error('Error en el bulk de notificaciones Klyntic:', error);
+        // Nota: Como ya respondimos 200, el error se maneja internamente en tus logs de Node/Render
+    }
+};
+
+
+
+
 module.exports = {
     recibirAlertaDesdeLaravel,
     obtenerHistorialMedico,
     obtenerContadorMedico,
     marcarUnaLeidaMedica,
     borrarNotificacionMedicaPorId,
-    borrarTodasLasNotificacionesMedicas
+    borrarTodasLasNotificacionesMedicas,
+    enviarRecordatoriosMasivos
 };

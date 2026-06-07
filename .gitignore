@@ -1,6 +1,7 @@
 node_modules/
-uploads/
 .env
+.wwebjs_auth/
+.wwebjs_cache/
 
 # Sesiones de WhatsApp (ZlipBot)
 whatsapp-sessions/
