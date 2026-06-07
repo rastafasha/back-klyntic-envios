@@ -1,23 +1,24 @@
 const { Client, LocalAuth } = require('whatsapp-web.js');
-const qrcode = require('qrcode-terminal');
-// 💥 CORRECCIÓN CRUCIAL: Cambiamos Tienda por tu modelo médico real Consultorio
+const qrcode = require('qrcode'); // Convertidor a Base64 para Angular
 const Consultorio = require('../models/consultorio'); 
 
-const clientesActivos = {};
+// Registramos el contenedor en el espacio global de la RAM
+global.whatsappClients = global.whatsappClients || {};
 
 const crearClienteWhatsApp = (consultorioId) => {
-    // Si ya existe una conexión activa para este consultorio, la reutilizamos
-    if (clientesActivos[consultorioId]) {
-        return clientesActivos[consultorioId];
+    if (global.whatsappClients[consultorioId]) {
+        return global.whatsappClients[consultorioId];
     }
+
+    console.log(`🤖 Inicializando instancia de WhatsApp para Consultorio ID: ${consultorioId}`);
 
     const client = new Client({
         authStrategy: new LocalAuth({
-            clientId: consultorioId, // Agrupa la sesión bajo el ID del consultorio médico
-            dataPath: './whatsapp-sessions'
+            clientId: `consultorio_${consultorioId}`, 
+            dataPath: './.wwebjs_auth' // Carpeta oculta para que GitHub la ignore
         }),
         puppeteer: {
-            // Configuración optimizada para los servidores Linux de Render [1]
+            headless: true,
             args: [
                 '--no-sandbox', 
                 '--disable-setuid-sandbox',
@@ -32,18 +33,20 @@ const crearClienteWhatsApp = (consultorioId) => {
 
     client.on('qr', async (qr) => {
         console.log(`✨ QR generado para el consultorio: ${consultorioId}`);
-
-        // 💥 CORRECCIÓN: Actualizamos el estado en tu colección médica de Mongo
-        await Consultorio.findByIdAndUpdate(consultorioId, {
-            whatsappStatus: 'ESPERANDO_QR',
-            whatsappQR: qr 
-        });
+        try {
+            // Convertimos el texto del QR a imagen Base64 para tu Angular
+            const qrBase64 = await qrcode.toDataURL(qr);
+            await Consultorio.findByIdAndUpdate(consultorioId, {
+                whatsappStatus: 'ESPERANDO_QR',
+                whatsappQR: qrBase64 
+            });
+        } catch (err) {
+            console.error('Error procesando QR en helper:', err);
+        }
     });
 
     client.on('ready', async () => {
         console.log(`🚀 ¡WhatsApp conectado para el consultorio: ${consultorioId}!`);
-
-        // 💥 CORRECCIÓN: Actualizamos a conectado en tu colección médica de Mongo
         await Consultorio.findByIdAndUpdate(consultorioId, {
             whatsappStatus: 'CONECTADO',
             whatsappQR: '', 
@@ -51,25 +54,42 @@ const crearClienteWhatsApp = (consultorioId) => {
         });
     });
 
-    client.initialize();
+    client.on('disconnected', async (reason) => {
+        console.log(`❌ WhatsApp desconectado en consultorio ${consultorioId}. Razón: ${reason}`);
+        await Consultorio.findByIdAndUpdate(consultorioId, {
+            whatsappStatus: 'DESCONECTADO',
+            whatsappQR: '',
+            whatsappConnectedAt: null
+        });
+        delete global.whatsappClients[consultorioId];
+    });
 
-    clientesActivos[consultorioId] = client;
+    client.initialize().catch(err => console.error('Error init cliente:', err));
+
+    global.whatsappClients[consultorioId] = client;
     return client;
 };
 
 const enviarMensajeWhatsApp = async (consultorioId, telefono, mensaje) => {
     try {
-        const client = crearClienteWhatsApp(consultorioId);
+        const client = global.whatsappClients[consultorioId];
 
-        // Validación de seguridad obligatoria
-        if (!client || !client.info) {
-            console.log(`⏳ El bot del consultorio ${consultorioId} se está inicializando o requiere escaneo QR.`);
+        // Si la sesión no está cargada en memoria, intentamos levantarla
+        if (!client) {
+            console.log(`⏳ Levantando cliente en memoria para el consultorio ${consultorioId}`);
+            crearClienteWhatsApp(consultorioId);
+            return false;
+        }
+
+        // Validación de seguridad para asegurar que el bot está activo
+        if (!client.info) {
+            console.log(`⏳ El bot del consultorio ${consultorioId} requiere escaneo QR.`);
             return false;
         }
 
         const chatId = `${telefono}@c.us`;
 
-        // Filtro de seguridad contra números sin WhatsApp (caso iPhone 5c)
+        // Filtro de seguridad (Caso iPhone 5c)
         const existeEnWhatsApp = await client.isRegisteredUser(chatId);
         if (!existeEnWhatsApp) {
             console.log(`⚠️ El número ${telefono} no tiene WhatsApp activo.`);
@@ -77,7 +97,7 @@ const enviarMensajeWhatsApp = async (consultorioId, telefono, mensaje) => {
         }
 
         await client.sendMessage(chatId, mensaje);
-        console.log(`✅ Mensaje médico enviado con éxito a: ${telefono} (Consultorio: ${consultorioId})`);
+        console.log(`✅ Mensaje médico enviado con éxito a: ${telefono}`);
         return true;
     } catch (error) {
         console.error(`❌ Error enviando WhatsApp en consultorio ${consultorioId}:`, error.message);

@@ -62,7 +62,7 @@ const sendNotification = async (userSubscription, title, message, url = '/notifi
         title,
         body: message,
         // 💥 AJUSTE 3: Apunta al dominio o assets oficiales de tu marca Klyntic
-        icon: 'https://klyntic.vercel.app/assets/icons/icon-192x192.png', 
+        icon: 'https://consultorio.klyntic.com/assets/icons/icon-128.png', 
         vibrate: [100, 50, 100],
         data: { url }
       }
