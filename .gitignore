@@ -1,0 +1,7 @@
+node_modules/
+uploads/
+.env
+
+# Sesiones de WhatsApp (ZlipBot)
+whatsapp-sessions/
+whatsapp-session/

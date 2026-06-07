@@ -1,0 +1,42 @@
+services:
+  - type: web
+    name: mallconnect-api
+    env: node
+    region: oregon
+    buildCommand: npm install
+    startCommand: npm start
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: RENDER
+        value: "1"
+      - key: PORT
+        value: "10000"
+      - key: DB_MONGO
+        sync: false
+        # Add your MongoDB connection string in Render dashboard
+      - key: JWT_SECRET
+        sync: false
+        # Add your JWT secret in Render dashboard
+      - key: JWT_EXPIRES_IN
+        value: 24h
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_REDIRECT_URI
+        sync: false
+      - key: EMAIL_SERVICE
+        sync: false
+      - key: EMAIL_USER
+        sync: false
+      - key: EMAIL_PASS
+        sync: false
+
