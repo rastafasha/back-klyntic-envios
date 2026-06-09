@@ -7,24 +7,60 @@ const Consultorio = require('../models/consultorio');
 // =========================================================================
 const recibirAlertaDesdeLaravel = async (req, res) => {
     try {
-        const { consultorio_id, telefono, mensaje } = req.body;
+        // Recibimos tanto los datos de WhatsApp como los nuevos campos de la app de Klyntic
+        const { 
+            consultorio_id, 
+            telefono, 
+            mensaje,
+            usuario,          // ID del médico o paciente de MySQL
+            rolDestinatario,  // 'MEDICO' o 'PACIENTE'
+            titulo,           // Título para el Toastr de Angular
+            tipo,             // El enum: 'PAGO_RECIBIDO', 'CITA_AGENDADA', etc.
+            referenciaId      // ID del objeto en MySQL
+        } = req.body;
 
-        // Limpiamos el teléfono con tu lógica del '58' de Venezuela
-        let telefonoLimpio = telefono.replace(/\D/g, ''); 
-        if (telefonoLimpio.startsWith('0')) {
-            telefonoLimpio = '58' + telefonoLimpio.substring(1); 
+        // =========================================================================
+        // 🚀 TAREA 1: Notificación Interna en la App (MongoDB + WebSockets)
+        // =========================================================================
+        if (usuario && tipo) {
+            const nuevaNotificacion = new NotificacionMedica({
+                usuario,
+                rolDestinatario,
+                titulo,
+                mensaje, // Usamos el mismo mensaje para ambos canales
+                tipo,
+                referenciaId
+            });
+            await nuevaNotificacion.save();
+
+            // Emitimos por el WebSocket en tiempo real a la app de Angular
+            if (req.io) {
+                req.io.to(usuario).emit('recibir-alerta', nuevaNotificacion);
+            }
         }
 
-        // Ejecutamos la función asíncrona multitenant
-        // Node busca el Chrome invisible de ese consultorio_id y dispara el WhatsApp
-        enviarMensajeWhatsApp(consultorio_id, telefonoLimpio, mensaje)
-            .then(enviado => {
-                if (enviado) console.log(`💬 WhatsApp médico enviado para el consultorio: ${consultorio_id}`);
-            })
-            .catch(err => console.error('Error enviando WhatsApp médico:', err.message));
+        // =========================================================================
+        // 💬 TAREA 2: Envío de WhatsApp Automático (Tu lógica original)
+        // =========================================================================
+        if (telefono) {
+            let telefonoLimpio = telefono.replace(/\D/g, ''); 
+            if (telefonoLimpio.startsWith('0')) {
+                telefonoLimpio = '58' + telefonoLimpio.substring(1); 
+            }
 
-        // Respondemos 200 de inmediato a Laravel para que no se quede colgado
-        return res.status(200).json({ ok: true, msg: 'Orden de recordatorio procesada por Node.' });
+            // Node busca el Chrome invisible de ese consultorio_id y dispara el WhatsApp
+            enviarMensajeWhatsApp(consultorio_id, telefonoLimpio, mensaje)
+                .then(enviado => {
+                    if (enviado) console.log(`💬 WhatsApp médico enviado para el consultorio: ${consultorio_id}`);
+                })
+                .catch(err => console.error('Error enviando WhatsApp médico:', err.message));
+        }
+
+        // Respondemos de inmediato a Laravel
+        return res.status(200).json({ 
+            ok: true, 
+            msg: 'Orden de recordatorio y notificación interna procesadas por Node.' 
+        });
 
     } catch (error) {
         return res.status(500).json({ error: error.message });
@@ -36,13 +72,44 @@ const recibirAlertaDesdeLaravel = async (req, res) => {
 // =========================================================================
 const obtenerHistorialMedico = async (req, res) => {
     try {
-        const uid = req.uid; // Extraído de validarJWT
-        const notificaciones = await NotificacionMedica.find({ usuario: uid }).sort({ fecha: -1 });
-        return res.json({ ok: true, notificaciones });
+        // 1. Extraemos el usuarioId de los parámetros o del token
+        const usuarioId = req.params.id || req.uid; 
+
+        if (!usuarioId) {
+            return res.status(400).json({ ok: false, msg: 'No se proporcionó el ID del usuario' });
+        }
+
+        // 2. 🔥 CAPTURAMOS LA PAGINACIÓN: Leemos el query string '?page=' (por defecto es 1)
+        const pagina = parseInt(req.query.page, 10) || 1;
+        const limitePorPagina = 10; // Cantidad de alertas que mostraremos por bloque
+        const saltarRegistros = (pagina - 1) * limitePorPagina;
+
+        // 3. Hacemos dos consultas en paralelo para que el servidor vuele:
+        // Una trae las notificaciones de ese bloque y la otra cuenta el total general en Mongo
+        const [notificaciones, totalNotificaciones] = await Promise.all([
+            NotificacionMedica.find({ usuario: usuarioId })
+                .sort({ fecha: -1 })
+                .skip(saltarRegistros)
+                .limit(limitePorPagina),
+            NotificacionMedica.countDocuments({ usuario: usuarioId })
+        ]);
+
+        // 4. 🔥 CÁLCULO DEL PRÓXIMO: Si todavía quedan más registros por cargar, calculamos el número de la siguiente página
+        const totalPaginas = Math.ceil(totalNotificaciones / limitePorPagina);
+        const proximo = pagina < totalPaginas ? pagina + 1 : null;
+        
+        // Retornamos exactamente el objeto que tu interfaz de Angular está esperando
+        return res.json({ 
+            ok: true, 
+            notificaciones, 
+            proximo 
+        });
+
     } catch (error) {
         return res.status(500).json({ ok: false, msg: error.message });
     }
 };
+
 
 const obtenerContadorMedico = async (req, res) => {
     try {
@@ -139,5 +206,5 @@ module.exports = {
     marcarUnaLeidaMedica,
     borrarNotificacionMedicaPorId,
     borrarTodasLasNotificacionesMedicas,
-    enviarRecordatoriosMasivos
+    enviarRecordatoriosMasivos,
 };

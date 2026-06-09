@@ -29,11 +29,11 @@ const server = require('http').Server(app);
 // Direcciones estáticas permitidas (Locales y Paneles Administrativos fijos)
 const allowedOrigins = [
     "http://localhost:4200",
-    "https://localhost:4200",
     "http://localhost:4203",
     "http://localhost:4206",
     "http://localhost:4207",
     "http://localhost:3001",
+    "http://localhost:4300",
     "https://menu-hamburguesa-tawny.vercel.app",
     "https://menu-panaderia.vercel.app",
     "https://menu-pizzeria-mauve.vercel.app",
@@ -51,12 +51,12 @@ const corsOptions = {
             return callback(null, true);
         }
 
-        // 2. MAGIA DINÁMICA: Permitir CUALQUIER subdominio que termine en .zlipmenu.com
-        // Esto valida http://zlipmenu.com, https://pizzeria.zlipmenu.com, etc.
-        const esSubdominioZlipmenu = /\.zlipmenu\.com$/.test(origin) || origin === "https://zlipmenu.com" || origin === "http://zlipmenu.com";
+        // 2. MAGIA DINÁMICA: Permitir CUALQUIER subdominio que termine en .klyntic.com
+        // Esto valida http://klyntic.com, https://pizzeria.klyntic.com, etc.
+        const esSubdominioKlyntic = /\.klyntic\.com$/.test(origin) || origin === "https://klyntic.com" || origin === "http://klyntic.com";
 
         // 3. Validar si el origen es dinámico o si está en la lista de estáticos anteriores
-        if (esSubdominioZlipmenu || allowedOrigins.includes(origin)) {
+        if (esSubdominioKlyntic || allowedOrigins.includes(origin)) {
             callback(null, true);
         } else {
             console.log(`[CORS RECHAZADO]: El origen ${origin} no tiene permisos.`);

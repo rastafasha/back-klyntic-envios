@@ -7,7 +7,8 @@ const {
     marcarUnaLeidaMedica,
     borrarNotificacionMedicaPorId,
     borrarTodasLasNotificacionesMedicas,
-    enviarRecordatoriosMasivos
+    enviarRecordatoriosMasivos,
+    obtenerporId
 } = require('../controllers/notificacionesKlynticController'); // Tu controlador médico
 
 const router = Router();
@@ -18,10 +19,16 @@ router.post('/webhook-recordatorio', recibirAlertaDesdeLaravel);
 // 2. Proteger las rutas de la interfaz de Angular con tu middleware existente
 router.use(validarJWT);
 
-router.get('/historial', obtenerHistorialMedico);
 router.get('/unread-count', obtenerContadorMedico);
 router.post('/bulk', enviarRecordatoriosMasivos);
 router.put('/:id', marcarUnaLeidaMedica);
+
+// Opción A: Para que el usuario vea su propio historial (Usa el token req.uid)
+router.get('/historial', validarJWT, obtenerHistorialMedico);
+
+// Opción B: Para buscar las notificaciones de un paciente/médico específico por su ID de MySQL
+router.get('/usuario/:id', validarJWT, obtenerHistorialMedico);
+
 
 router.delete('/por_id/:id', borrarNotificacionMedicaPorId);
 router.delete('/limpiar/todas', borrarTodasLasNotificacionesMedicas);
