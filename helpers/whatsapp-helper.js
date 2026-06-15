@@ -1,4 +1,4 @@
-const { Client, LocalAuth } = require('whatsapp-web.js');
+const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
 const qrcode = require('qrcode'); // Convertidor a Base64 para Angular
 const Consultorio = require('../models/consultorio'); 
 
@@ -105,4 +105,43 @@ const enviarMensajeWhatsApp = async (consultorioId, telefono, mensaje) => {
     }
 };
 
-module.exports = { crearClienteWhatsApp, enviarMensajeWhatsApp };
+const enviarFacturaWhatsApp = async (restauranteId, telefono, mensaje, fileBuffer, fileName) => {
+    try {
+        // 1. Obtener o crear el cliente del restaurante específico
+        const client = crearClienteWhatsApp(restauranteId);
+
+        // 2. Validación de seguridad: Verificar si la sesión está lista
+        if (!client || !client.info) {
+            console.log(`⏳ El bot del local ${restauranteId} requiere escaneo QR o está cargando.`);
+            return false;
+        }
+
+        const chatId = `${telefono.replace(/\D/g, '')}@c.us`;
+
+        // 3. Validar si el usuario existe en WhatsApp
+        const existeEnWhatsApp = await client.isRegisteredUser(chatId);
+        if (!existeEnWhatsApp) {
+            console.log(`⚠️ El número ${telefono} no tiene WhatsApp activo.`);
+            return false;
+        }
+
+        // 4. Convertir el buffer del PDF recibido de Angular a Base64 en caliente
+        const media = new MessageMedia(
+            'application/pdf', 
+            fileBuffer.toString('base64'), 
+            fileName
+        );
+
+        // 5. Enviar el texto y luego el documento PDF adjunto
+        await client.sendMessage(chatId, mensaje);
+        await client.sendMessage(chatId, media);
+        
+        console.log(`✅ Factura PDF enviada con éxito a: ${telefono} (Local: ${restauranteId})`);
+        return true;
+    } catch (error) {
+        console.error(`❌ Error enviando Factura PDF en local ${restauranteId}:`, error.message);
+        return false;
+    }
+};
+
+module.exports = { crearClienteWhatsApp, enviarMensajeWhatsApp, enviarFacturaWhatsApp };

@@ -100,6 +100,9 @@ const startServer = async () => {
     // === SECCIÓN SAAS MÉDICO (Klyntic) ===
     app.use('/api/klyntic/notificaciones', require('./routes/notificacionesKlynticRoutes'));
     app.use('/api/klyntic/consultorios', require('./routes/consultoriosRoutes'));
+    app.use('/api/tasadollarbcv', require('./routes/tasadollarbcv'));
+    app.use('/api/tasas', require('./routes/tasas'));
+    app.use('/api/envio', require('./routes/envio'));
 
     //notification
     const vapidKeys = {
