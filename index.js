@@ -34,13 +34,8 @@ const allowedOrigins = [
     "http://localhost:4207",
     "http://localhost:3001",
     "http://localhost:4300",
-    "https://menu-hamburguesa-tawny.vercel.app",
-    "https://menu-panaderia.vercel.app",
-    "https://menu-pizzeria-mauve.vercel.app",
-    "https://adminstorenodejs.malcolmcordova.com",
-    "https://admin.zlipmenu.com",
-    "https://admin-zlipmenu.vercel.app", // admin en vercel
-    "https://delivery-angular.vercel.app"
+    "https://consultorio.klyntic.com",
+    "https://pconsultorio.klyntic.com",
 ];
 
 // Configuración compartida inteligente para SaaS Multi-Tenant
@@ -63,6 +58,8 @@ const corsOptions = {
             callback(new Error('Origin no permitido por CORS'));
         }
     },
+     // 🛡️ ENTRADA CRÍTICA: Permite explícitamente el 'x-token' de tu Angular
+    // allowedHeaders: ["Content-Type", "Authorization", "x-token"],
     methods: "GET,HEAD,PUT,PATCH,POST,DELETE",
     credentials: true,
     optionsSuccessStatus: 204

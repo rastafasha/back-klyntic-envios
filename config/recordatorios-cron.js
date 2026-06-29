@@ -45,7 +45,7 @@ async function ejecutarRecordatorios() {
 
         if (citasProximas.length === 0) {
             console.log('💤 No hay citas médicas próximas con [cron_state = 1] para notificar.');
-            process.exit(0); 
+            return;
         }
 
         console.log(`📦 Se encontraron ${citasProximas.length} citas pendientes por procesar...`);
