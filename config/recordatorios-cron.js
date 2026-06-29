@@ -16,52 +16,65 @@ const transporter = nodemailer.createTransport(smtpTransport({
 // FUNCIÓN PRINCIPAL DIRECTA (SIN NODE-CRON)
 async function ejecutarRecordatorios() {
     console.log('⏰ [Klyntic Cron] Despertando reloj nativo de Render...');
+    
     try {
-        const urlLaravel = `${process.env.LARAVEL_API_URL}/api/v1/citas/pendientes-recordatorio`;
-        const respuesta = await axios.get(urlLaravel, {
+        // 1. 🔄 PASO NUEVO: Obtener todos los doctores activos dinámicamente
+        const urlDoctores = `${process.env.LARAVEL_API_URL}/api/doctors`; 
+        const resDoctores = await axios.get(urlDoctores, {
             headers: { 'Authorization': `Bearer ${process.env.WEBHOOK_SECRET_TOKEN}` }
         });
+        
+        // Asumiendo que Laravel responde un array de objetos: [{id: 1, name: '...'}, {id: 2}]
+        const doctoresAProcesar = resDoctores.data.map(doc => doc.id); 
 
-        const citasProximas = respuesta.data;
-
-        if (!citasProximas || citasProximas.length === 0) {
-            console.log('💤 No hay citas médicas próximas para notificar.');
-            process.exit(0); // Cerramos el proceso con éxito
-        }
-
-        for (const cita of citasProximas) {
-            const telefonoDestino = formatearTelefono(cita.telefono_paciente);
-            const consultorioId = cita.consultorio_id.toString();
-
-            if (cita.enviar_whatsapp && telefonoDestino) {
-                const enviadoWS = await enviarMensajeWhatsApp(consultorioId, telefonoDestino, cita.mensaje_whatsapp);
-                if (enviadoWS) console.log(`💬 WhatsApp médico entregado: ${consultorioId}`);
-            }
-
-            if (cita.enviar_email && cita.email_paciente) {
-                try {
-                    await transporter.sendMail({
-                        from: process.env.EMAIL_BACKEND,
-                        to: cita.email_paciente,
-                        subject: cita.asunto_email || 'Recordatorio de tu Cita Médica 🏥',
-                        text: cita.mensaje_email
-                    });
-                    console.log(`📧 Correo médico enviado a: ${cita.email_paciente}`);
-                } catch (emailError) {
-                    console.error(`❌ Error enviando correo:`, emailError.message);
-                }
-            }
-
-            await axios.post(`${process.env.LARAVEL_API_URL}/api/v1/citas/marcar-notificada/${cita.cita_id}`, {}, {
+        // 2. Iterar la lista que acabamos de traer de la base de datos
+        for (const doctorId of doctoresAProcesar) {
+            const urlLaravel = `${process.env.LARAVEL_API_URL}/api/appointments/pendientesbydoctor/${doctorId}`;
+            
+            const respuesta = await axios.get(urlLaravel, {
                 headers: { 'Authorization': `Bearer ${process.env.WEBHOOK_SECRET_TOKEN}` }
-            }).catch(err => console.error(`Error al actualizar estado en Laravel:`, err.message));
+            });
+
+            const citasProximas = respuesta.data;
+            if (!citasProximas || citasProximas.length === 0) continue;
+
+            for (const cita of citasProximas) {
+                const telefonoDestino = formatearTelefono(cita.telefono_paciente);
+                const consultorioId = cita.consultorio_id ? cita.consultorio_id.toString() : 'Sin ID';
+
+                if (cita.enviar_whatsapp && telefonoDestino) {
+                    const enviadoWS = await enviarMensajeWhatsApp(consultorioId, telefonoDestino, cita.mensaje_whatsapp);
+                    if (enviadoWS) console.log(`💬 WhatsApp médico entregado: ${consultorioId}`);
+                }
+
+                if (cita.enviar_email && cita.email_paciente) {
+                    try {
+                        await transporter.sendMail({
+                            from: process.env.EMAIL_BACKEND,
+                            to: cita.email_paciente,
+                            subject: cita.asunto_email || 'Recordatorio de tu Cita Médica 🏥',
+                            text: cita.mensaje_email
+                        });
+                        console.log(`📧 Correo médico enviado a: ${cita.email_paciente}`);
+                    } catch (emailError) {
+                        console.error(`❌ Error enviando correo:`, emailError.message);
+                    }
+                }
+
+                // Ruta de actualización (Verifica el nombre exacto de esta ruta en tu Laravel)
+                const urlLaravel = `${process.env.LARAVEL_API_URL}/api/appointments/cron-pendientes`;
+
+                await axios.post(urlUpdate, {}, {
+                    headers: { 'Authorization': `Bearer ${process.env.WEBHOOK_SECRET_TOKEN}` }
+                }).catch(err => console.error(`Error al actualizar estado en Laravel:`, err.message));
+            }
         }
 
-        process.exit(0); // Apaga el script limpiamente al finalizar la lista
+        process.exit(0);
 
     } catch (error) {
         console.error('❌ Error en el extractor médico:', error.message);
-        process.exit(1); // Cierra con código de error si colapsa
+        process.exit(1); 
     }
 }
 
