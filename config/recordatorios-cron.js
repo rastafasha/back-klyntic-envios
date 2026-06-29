@@ -36,9 +36,14 @@ async function ejecutarRecordatorios() {
         });
 
         // Tu pendientesCron() de Laravel devuelve el array directo gracias al Collection
-        const citasProximas = respuesta.data;
+      
 
-        if (!citasProximas || citasProximas.length === 0) {
+        // Verificamos si los datos vienen directo en un array o envueltos por la Resource Collection de Laravel
+        const citasProximas = Array.isArray(respuesta.data) 
+            ? respuesta.data 
+            : (respuesta.data.data || []);
+
+        if (citasProximas.length === 0) {
             console.log('💤 No hay citas médicas próximas con [cron_state = 1] para notificar.');
             process.exit(0); 
         }
