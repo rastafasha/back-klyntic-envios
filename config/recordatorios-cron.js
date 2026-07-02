@@ -81,11 +81,21 @@ async function ejecutarRecordatorios() {
             // 🔄 3. ACTUALIZACIÓN: Cambiamos el cron_state de la cita llamando a tu nuevo método en Laravel
             const urlUpdate = `${process.env.LARAVEL_API_URL}/api/appointments/update-cron-state/${citaId}`;
 
-            await axios.post(urlUpdate, {}, {
-                headers: { 'Authorization': `Bearer ${process.env.WEBHOOK_SECRET_TOKEN}` }
-            })
-            .then(() => console.log(`✅ Cita ${citaId} marcada como procesada (cron_state = 2).`))
-            .catch(err => console.error(`❌ Error al actualizar cron_state de la cita ${citaId} en Laravel:`, err.message));
+            try {
+                // Envolvemos el await en su propio try-catch interno
+                await axios.post(urlUpdate, {}, {
+                    headers: { 'Authorization': `Bearer ${process.env.WEBHOOK_SECRET_TOKEN}` }
+                });
+                console.log(`✅ Cita ${citaId} marcada como procesada (cron_state = 2).`);
+                
+            } catch (updateError) {
+                // Si Laravel devuelve 404 (porque el ID es simulado o viejo), se registra y el script CONTINÚA
+                if (updateError.response && updateError.response.status === 404) {
+                    console.warn(`⚠️ Aviso: La cita ${citaId} no existe en Laravel (404). Saltando actualización para continuar...`);
+                } else {
+                    console.error(`❌ Error al actualizar cron_state de la cita ${citaId} en Laravel:`, updateError.message);
+                }
+            }
         }
 
         console.log('🚀 [Klyntic Cron] Proceso terminado con éxito de forma limpia.');
