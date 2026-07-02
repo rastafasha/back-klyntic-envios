@@ -17,28 +17,27 @@ const transporter = nodemailer.createTransport(smtpTransport({
 async function ejecutarRecordatorios() {
     console.log('⏰ [Klyntic Cron] Despertando reloj nativo de Render...');
     
-    // 🛡️ CONTROL DE SEGURIDAD: Evita URLs inválidas si Render no tiene las variables cargadas
-    if (!process.env.LARAVEL_API_URL) {
-        console.error('❌ ERROR CRÍTICO: La variable LARAVEL_API_URL no está definida en el entorno.');
-        process.exit(1); 
+    if (!process.env.LARAVEL_API_URL || !process.env.WEBHOOK_SECRET_TOKEN) {
+        console.error('❌ ERROR CRÍTICO: Faltan variables de entorno esenciales.');
+        return; // Retornamos en lugar de apagar el proceso
     }
-    if (!process.env.WEBHOOK_SECRET_TOKEN) {
-        console.error('❌ ERROR CRÍTICO: La variable WEBHOOK_SECRET_TOKEN no está definida.');
-        process.exit(1);
+
+    let respuesta;
+    try {
+        const urlLaravel = `${process.env.LARAVEL_API_URL}/api/appointments/cron-pendientes`;
+        
+        // Intentamos obtener las citas pendientes
+        respuesta = await axios.get(urlLaravel, {
+            headers: { 'Authorization': `Bearer ${process.env.WEBHOOK_SECRET_TOKEN}` }
+        });
+    } catch (apiError) {
+        // SI EL ENDPOINT DA 404, AQUÍ LO ATRAPAMOS SIN QUE SE DETENGA EL SERVIDOR
+        console.error('⚠️ Laravel devolvió un error al consultar citas (Posible 404 por datos simulados):', apiError.message);
+        console.log('💤 Cancelando iteración actual por falta de conexión válida.');
+        return; // Detiene la ejecución de este ciclo de forma segura sin matar el proceso de Node
     }
 
     try {
-        // 🔗 1. CONECTAMOS DIRECTO AL ENDPOINT GLOBAL (Una sola petición para todas las citas)
-        const urlLaravel = `${process.env.LARAVEL_API_URL}/api/appointments/cron-pendientes`;
-        
-        const respuesta = await axios.get(urlLaravel, {
-            headers: { 'Authorization': `Bearer ${process.env.WEBHOOK_SECRET_TOKEN}` }
-        });
-
-        // Tu pendientesCron() de Laravel devuelve el array directo gracias al Collection
-      
-
-        // Verificamos si los datos vienen directo en un array o envueltos por la Resource Collection de Laravel
         const citasProximas = Array.isArray(respuesta.data) 
             ? respuesta.data 
             : (respuesta.data.data || []);
@@ -50,17 +49,19 @@ async function ejecutarRecordatorios() {
 
         console.log(`📦 Se encontraron ${citasProximas.length} citas pendientes por procesar...`);
 
-        // 🔄 2. ITERAMOS DIRECTAMENTE LAS CITAS RECIBIDAS (Sin pasar por doctores)
         for (const cita of citasProximas) {
-            // Nota: Soporta si tu Collection expone la llave como 'id' o como 'cita_id'
             const citaId = cita.id || cita.cita_id; 
             const telefonoDestino = formatearTelefono(cita.telefono_paciente);
             const consultorioId = cita.consultorio_id ? cita.consultorio_id.toString() : 'Sin ID';
 
             // Enviar mensaje por WhatsApp
             if (cita.enviar_whatsapp && telefonoDestino) {
-                const enviadoWS = await enviarMensajeWhatsApp(consultorioId, telefonoDestino, cita.mensaje_whatsapp);
-                if (enviadoWS) console.log(`💬 WhatsApp médico entregado para la cita: ${citaId}`);
+                try {
+                    const enviadoWS = await enviarMensajeWhatsApp(consultorioId, telefonoDestino, cita.mensaje_whatsapp);
+                    if (enviadoWS) console.log(`💬 WhatsApp médico entregado para la cita: ${citaId}`);
+                } catch (wsError) {
+                    console.error(`❌ Error en módulo WhatsApp para cita ${citaId}:`, wsError.message);
+                }
             }
 
             // Enviar mensaje por Correo Electrónico
@@ -78,34 +79,25 @@ async function ejecutarRecordatorios() {
                 }
             }
 
-            // 🔄 3. ACTUALIZACIÓN: Cambiamos el cron_state de la cita llamando a tu nuevo método en Laravel
+            // Actualización de estado controlada
             const urlUpdate = `${process.env.LARAVEL_API_URL}/api/appointments/update-cron-state/${citaId}`;
-
             try {
-                // Envolvemos el await en su propio try-catch interno
                 await axios.post(urlUpdate, {}, {
                     headers: { 'Authorization': `Bearer ${process.env.WEBHOOK_SECRET_TOKEN}` }
                 });
                 console.log(`✅ Cita ${citaId} marcada como procesada (cron_state = 2).`);
-                
             } catch (updateError) {
-                // Si Laravel devuelve 404 (porque el ID es simulado o viejo), se registra y el script CONTINÚA
-                if (updateError.response && updateError.response.status === 404) {
-                    console.warn(`⚠️ Aviso: La cita ${citaId} no existe en Laravel (404). Saltando actualización para continuar...`);
-                } else {
-                    console.error(`❌ Error al actualizar cron_state de la cita ${citaId} en Laravel:`, updateError.message);
-                }
+                console.warn(`⚠️ Aviso: No se pudo actualizar el estado de la cita ${citaId} en Laravel:`, updateError.message);
             }
         }
 
         console.log('🚀 [Klyntic Cron] Proceso terminado con éxito de forma limpia.');
-        process.exit(0);
 
     } catch (error) {
-        console.error('❌ Error general en el extractor médico:', error.message);
-        process.exit(1); 
+        console.error('❌ Error general inesperado en el extractor médico:', error.message);
     }
 }
+
 
 function formatearTelefono(tel) {
     if (!tel) return '';
