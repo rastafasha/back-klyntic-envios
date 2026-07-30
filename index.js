@@ -40,30 +40,30 @@ const allowedOrigins = [
 
 // Configuración compartida inteligente para SaaS Multi-Tenant
 const corsOptions = {
-    origin: (origin, callback) => {
-        // 1. Permitir peticiones locales o sin origen (como Postman o apps móviles nativas)
-        if (!origin) {
-            return callback(null, true);
-        }
-
-        // 2. MAGIA DINÁMICA: Permitir CUALQUIER subdominio que termine en .klyntic.com
-        // Esto valida http://klyntic.com, https://pizzeria.klyntic.com, etc.
-        const esSubdominioKlyntic = /\.klyntic\.com$/.test(origin) || origin === "https://klyntic.com" || origin === "http://klyntic.com";
-
-        // 3. Validar si el origen es dinámico o si está en la lista de estáticos anteriores
-        if (esSubdominioKlyntic || allowedOrigins.includes(origin)) {
-            callback(null, true);
-        } else {
-            console.log(`[CORS RECHAZADO]: El origen ${origin} no tiene permisos.`);
-            callback(new Error('Origin no permitido por CORS'));
-        }
-    },
-     // 🛡️ ENTRADA CRÍTICA: Permite explícitamente el 'x-token' de tu Angular
-    // allowedHeaders: ["Content-Type", "Authorization", "x-token"],
-    methods: "GET,HEAD,PUT,PATCH,POST,DELETE",
-    credentials: true,
-    optionsSuccessStatus: 204
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true);
+    
+    const esSubdominioKlyntic = /\.klyntic\.com$/.test(origin) || origin === "https://klyntic.com" || origin === "http://klyntic.com";
+    
+    if (esSubdominioKlyntic || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      console.log(`[CORS RECHAZADO]: El origen ${origin} no tiene permisos.`);
+      callback(new Error('Origin no permitido por CORS'));
+    }
+  },
+  
+  // 🛡️ SOLUCIÓN AL 401: Autoriza explícitamente al navegador a enviar los tokens de Angular
+  allowedHeaders: ["Content-Type", "Authorization", "x-token", "Accept"], 
+  
+  methods: "GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS", // Asegúrate de incluir OPTIONS
+  credentials: true,
+  optionsSuccessStatus: 204
 };
+
+// No olvides aplicar las opciones al middleware global
+app.use(cors(corsOptions));
+
 
 
 // 1. Aplicar a las rutas normales de Express (REST API)
