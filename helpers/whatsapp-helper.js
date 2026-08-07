@@ -44,9 +44,9 @@ const crearClienteWhatsApp = async (consultorioId) => {
                 headless: true,
                 // 🚀 Híbrido: Si está en Render usa su Chrome nativo, si está en desarrollo usa el tuyo de Mac
                 // 🚀 SI ESTÁ EN PRODUCCIÓN DEJAMOS INDEFINIDO PARA QUE DISPARE LA DESCARGA DEL SCRIPT
-        executablePath: isProduction 
-            ? undefined 
-            : '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+                executablePath: isProduction
+                    ? undefined
+                    : '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
 
                 args: [
                     '--no-sandbox',
@@ -57,7 +57,25 @@ const crearClienteWhatsApp = async (consultorioId) => {
                     '--no-zygote',
                     '--disable-extensions',
                     '--disable-blink-features=AutomationControlled',
-                    '--user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36'
+                    '--user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
+                    // 🚀 OPTIMIZACIONES EXTREMAS DE RAM PARA SERVIDORES PEQUEÑOS:
+                    '--js-flags="--max-old-space-size=150"', // Limita el motor V8 de Chromium a usar max 150MB
+                    '--disable-canvas-features',
+                    '--disable-speech-api',
+                    '--disable-background-networking',
+                    '--disable-background-timer-throttling',
+                    '--disable-backgrounding-occluded-windows',
+                    '--disable-breakpad',
+                    '--disable-client-side-phishing-detection',
+                    '--disable-component-extensions-with-background-pages',
+                    '--disable-default-apps',
+                    '--disable-features=Translate',
+                    '--disable-ipc-flooding-protection',
+                    '--disable-renderer-backgrounding',
+                    '--enable-features=NetworkServiceInProcess2',
+                    '--mute-audio',
+                    '--no-default-browser-check'
+                    
                 ]
             }
         });
@@ -139,8 +157,36 @@ const crearClienteWhatsApp = async (consultorioId) => {
         });
 
 
+        // =========================================================================
+        // 🏁 INICIALIZACIÓN ASÍNCRONA BLINDADA PARA LA RAM DE RENDER
+        // =========================================================================
+        console.log(`⏳ Lanzando inicialización de Puppeteer en segundo plano para ${idStr}...`);
+        
         client.initialize().then(() => {
             global.whatsappClients[idStr] = client;
+
+            // 🚀 INTERCEPTOR ANTI-CAÍDAS: Filtramos el tráfico gráfico en el segundo uno
+            setTimeout(async () => {
+                try {
+                    const page = client.pupPage;
+                    if (page) {
+                        await page.setRequestInterception(true);
+                        page.on('request', (request) => {
+                            const resourceType = request.resourceType();
+                            // Bloqueamos avatares, imágenes pesadas, hojas de estilo CSS secundarias y tipografías
+                            if (['image', 'media', 'font', 'stylesheet'].includes(resourceType)) {
+                                request.abort();
+                            } else {
+                                request.continue();
+                            }
+                        });
+                        console.log(`🛡️ [RAM PROTECTED] Interceptor de red activado con éxito para ID: ${idStr}`);
+                    }
+                } catch (interceptorErr) {
+                    console.error('Error al inyectar el interceptor de RAM:', interceptorErr.message);
+                }
+            }, 2000); // Esperamos 2 segundos a que Puppeteer instancie la pestaña interna
+
         }).catch(err => {
             console.error(`❌ Falló initialize diferido para ${idStr}:`, err.message);
             delete global.inicializandoClientes[idStr];
