@@ -43,9 +43,10 @@ const crearClienteWhatsApp = async (consultorioId) => {
                 // 🚀 TRUE para que corra invisible en segundo plano consumiendo la mitad de RAM
                 headless: true,
                 // 🚀 Híbrido: Si está en Render usa su Chrome nativo, si está en desarrollo usa el tuyo de Mac
-                executablePath: isProduction
-                    ? '/usr/bin/google-chrome'
-                    : '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+                // 🚀 SI ESTÁ EN PRODUCCIÓN DEJAMOS INDEFINIDO PARA QUE DISPARE LA DESCARGA DEL SCRIPT
+        executablePath: isProduction 
+            ? undefined 
+            : '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
 
                 args: [
                     '--no-sandbox',
