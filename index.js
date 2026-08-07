@@ -54,7 +54,7 @@ const corsOptions = {
   },
   
   // 🛡️ SOLUCIÓN AL 401: Autoriza explícitamente al navegador a enviar los tokens de Angular
-  allowedHeaders: ["Content-Type", "Authorization", "x-token", "Accept"], 
+  allowedHeaders: ["Content-Type", "Authorization", "x-token", "Accept","auth_token"], 
   
   methods: "GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS", // Asegúrate de incluir OPTIONS
   credentials: true,
