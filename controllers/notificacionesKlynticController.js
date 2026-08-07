@@ -2,6 +2,12 @@ const { enviarMensajeWhatsApp } = require('../helpers/whatsapp-helper');
 const NotificacionMedica = require('../models/notificacionMedica'); // Tu esquema médico en Mongo
 const Consultorio = require('../models/consultorio');
 
+const colaWhatsApp = [];
+let procesandoCola = false;
+
+// Función auxiliar para pausar
+const delay = ms => new Promise(res => setTimeout(res, ms));
+
 // =========================================================================
 // 🌐 EL WEBHOOK: Receptor de órdenes de Laravel (MySQL)
 // =========================================================================
@@ -188,6 +194,11 @@ const enviarRecordatoriosMasivos = async (req, res) => {
             } else {
                 console.log(`[IGNORADO] El consultorio ${doctor_id} está DESCONECTADO. No se puede enviar el mensaje a ${telefono}.`);
             }
+            // =========================================================================
+            // ⏳ SOLUCIÓN: Pausa de 3 a 4 segundos entre cada mensaje del lote
+            // =========================================================================
+            console.log(`⏱ Esperando 3.5 segundos antes del siguiente recordatorio...`);
+            await delay(3500); 
         }
 
     } catch (error) {
