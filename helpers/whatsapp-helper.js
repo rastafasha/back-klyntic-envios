@@ -1,74 +1,159 @@
 const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
-const qrcode = require('qrcode'); // Convertidor a Base64 para Angular
-const Consultorio = require('../models/consultorio'); 
+const Consultorio = require('../models/consultorio');
+const QRCode = require('qrcode');
 
-// Registramos el contenedor en el espacio global de la RAM
 global.whatsappClients = global.whatsappClients || {};
+global.inicializandoClientes = global.inicializandoClientes || {};
+// NUEVO: Objeto global volátil para estados y QR rápidos sin saturar MongoDB
+global.whatsappStates = global.whatsappStates || {};
 
-const crearClienteWhatsApp = (consultorioId) => {
-    if (global.whatsappClients[consultorioId]) {
-        return global.whatsappClients[consultorioId];
+const crearClienteWhatsApp = async (consultorioId) => {
+    // 🚀 Mantenemos el ID original para la librería, pero creamos un string solo para las llaves de la RAM
+    const idStr = consultorioId.toString();
+
+    if (global.whatsappClients[idStr]) {
+        console.log(`ℹ️ El cliente del consultorio ${idStr} ya está activo.`);
+        return global.whatsappClients[idStr];
     }
 
-    console.log(`🤖 Inicializando instancia de WhatsApp para Consultorio ID: ${consultorioId}`);
+    global.inicializandoClientes[idStr] = true;
 
-    const client = new Client({
-        authStrategy: new LocalAuth({
-            clientId: `consultorio_${consultorioId}`, 
-            dataPath: './.wwebjs_auth' // Carpeta oculta para que GitHub la ignore
-        }),
-        puppeteer: {
-            headless: true,
-            args: [
-                '--no-sandbox', 
-                '--disable-setuid-sandbox',
-                '--disable-dev-shm-usage', 
-                '--disable-gpu',
-                '--no-first-run',
-                '--no-zygote',
-                '--single-process' 
-            ],
-        }
-    });
+    global.whatsappStates = global.whatsappStates || {};
+    global.whatsappStates[idStr] = {
+        whatsappStatus: 'INICIALIZANDO',
+        whatsappQR: ''
+    };
 
-    client.on('qr', async (qr) => {
-        console.log(`✨ QR generado para el consultorio: ${consultorioId}`);
-        try {
-            // Convertimos el texto del QR a imagen Base64 para tu Angular
-            const qrBase64 = await qrcode.toDataURL(qr);
-            await Consultorio.findByIdAndUpdate(consultorioId, {
-                whatsappStatus: 'ESPERANDO_QR',
-                whatsappQR: qrBase64 
-            });
-        } catch (err) {
-            console.error('Error procesando QR en helper:', err);
-        }
-    });
+    console.log(`🤖 [KLYNTIC] Iniciando motor Puppeteer para Consultorio ID: ${idStr}`);
 
-    client.on('ready', async () => {
-        console.log(`🚀 ¡WhatsApp conectado para el consultorio: ${consultorioId}!`);
-        await Consultorio.findByIdAndUpdate(consultorioId, {
-            whatsappStatus: 'CONECTADO',
-            whatsappQR: '', 
-            whatsappConnectedAt: new Date()
+    try {
+        const isProduction = process.env.NODE_ENV === 'production';
+
+        const client = new Client({
+            // 🚀 IMPORTANTE: Usamos el ID original/limpio aquí para que coincida con tus sesiones previas
+            authStrategy: new LocalAuth({
+                clientId: `consultorio_${idStr}`,
+                dataPath: './.wwebjs_auth'
+            }),
+            webVersionCache: {
+                type: 'remote',
+                remotePath: 'https://githubusercontent.com'
+            },
+            puppeteer: {
+                // 🚀 TRUE para que corra invisible en segundo plano consumiendo la mitad de RAM
+                headless: true,
+                // 🚀 Híbrido: Si está en Render usa su Chrome nativo, si está en desarrollo usa el tuyo de Mac
+                executablePath: isProduction
+                    ? '/usr/bin/google-chrome'
+                    : '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+
+                args: [
+                    '--no-sandbox',
+                    '--disable-setuid-sandbox',
+                    '--disable-dev-shm-usage',
+                    '--disable-gpu',
+                    '--no-first-run',
+                    '--no-zygote',
+                    '--disable-extensions',
+                    '--disable-blink-features=AutomationControlled',
+                    '--user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36'
+                ]
+            }
         });
-    });
 
-    client.on('disconnected', async (reason) => {
-        console.log(`❌ WhatsApp desconectado en consultorio ${consultorioId}. Razón: ${reason}`);
-        await Consultorio.findByIdAndUpdate(consultorioId, {
-            whatsappStatus: 'DESCONECTADO',
-            whatsappQR: '',
-            whatsappConnectedAt: null
+        // =========================================================================
+        // 📡 EVENTOS ACTUALIZADOS USANDO ID STRING PARA LA MEMORIA
+        // =========================================================================
+        client.on('qr', async (qr) => {
+            console.log(`✨ [CONSOLA] ¡QR Generado con éxito para consultorio: ${idStr}!`);
+            try {
+                const qrBase64 = await QRCode.toDataURL(qr);
+
+                global.whatsappStates[idStr].whatsappStatus = 'ESPERANDO_QR';
+                global.whatsappStates[idStr].whatsappQR = qrBase64;
+
+                Consultorio.findByIdAndUpdate(consultorioId, {
+                    whatsappStatus: 'ESPERANDO_QR',
+                    whatsappQR: qrBase64
+                }).catch(err => console.error('Error BD QR:', err.message));
+
+            } catch (err) {
+                console.error('Error generando QR Base64:', err.message);
+            }
         });
-        delete global.whatsappClients[consultorioId];
-    });
+        // =========================================================================
+        // 🚀 EVENTO READY: Se dispara cuando el escaneo es exitoso
+        // =========================================================================
+        client.on('ready', async () => {
+            console.log(`🚀 ¡WhatsApp conectado para el consultorio: ${idStr}!`);
 
-    client.initialize().catch(err => console.error('Error init cliente:', err));
+            // 1. FORZAMOS EL BORRADO DEL SEMÁFORO DE ARRANQUE
+            delete global.inicializandoClientes[idStr];
 
-    global.whatsappClients[consultorioId] = client;
-    return client;
+            // 2. ACTUALIZAMOS LA MEMORIA RAM DE INMEDIATO CON EL ESTADO DEFINITIVO
+            global.whatsappStates = global.whatsappStates || {};
+            global.whatsappStates[idStr] = {
+                whatsappStatus: 'CONECTADO',
+                whatsappQR: '' // Limpiamos el string Base64 viejo
+            };
+
+            // 3. Guardamos en la Base de Datos para persistencia a largo plazo
+            try {
+                await Consultorio.findByIdAndUpdate(consultorioId, {
+                    whatsappStatus: 'CONECTADO',
+                    whatsappQR: '',
+                    whatsappConnectedAt: new Date()
+                });
+                console.log(`[ID ${idStr}] BD actualizada con éxito a CONECTADO.`);
+            } catch (dbErr) {
+                console.error('Error actualizando BD en ready:', dbErr.message);
+            }
+        });
+
+
+        // =========================================================================
+        // ❌ EVENTO DISCONNECTED: Se dispara si el médico cierra sesión desde el móvil
+        // =========================================================================
+        client.on('disconnected', async (reason) => {
+            console.log(`❌ WhatsApp desconectado en consultorio ${idStr}. Razón: ${reason}`);
+
+            // 1. Limpiamos por completo este ID de todas las memorias RAM
+            delete global.whatsappClients[idStr];
+            delete global.inicializandoClientes[idStr];
+            if (global.whatsappStates) {
+                delete global.whatsappStates[idStr];
+            }
+
+            // 2. 🚨 CRÍTICO: Devolvemos la base de datos a DESCONECTADO para que Angular permita revincular
+            try {
+                await Consultorio.findByIdAndUpdate(consultorioId, {
+                    whatsappStatus: 'DESCONECTADO',
+                    whatsappQR: '',
+                    whatsappConnectedAt: null
+                });
+                console.log(`[ID ${idStr}] ✅ MongoDB actualizado a DESCONECTADO por desvinculación.`);
+            } catch (dbErr) {
+                console.error('Error al actualizar BD en disconnected:', dbErr.message);
+            }
+        });
+
+
+        client.initialize().then(() => {
+            global.whatsappClients[idStr] = client;
+        }).catch(err => {
+            console.error(`❌ Falló initialize diferido para ${idStr}:`, err.message);
+            delete global.inicializandoClientes[idStr];
+            delete global.whatsappStates[idStr];
+        });
+
+        return client;
+
+    } catch (error) {
+        delete global.inicializandoClientes[idStr];
+        return null;
+    }
 };
+
 
 const enviarMensajeWhatsApp = async (consultorioId, telefono, mensaje) => {
     try {
@@ -105,43 +190,6 @@ const enviarMensajeWhatsApp = async (consultorioId, telefono, mensaje) => {
     }
 };
 
-const enviarFacturaWhatsApp = async (restauranteId, telefono, mensaje, fileBuffer, fileName) => {
-    try {
-        // 1. Obtener o crear el cliente del restaurante específico
-        const client = crearClienteWhatsApp(restauranteId);
 
-        // 2. Validación de seguridad: Verificar si la sesión está lista
-        if (!client || !client.info) {
-            console.log(`⏳ El bot del local ${restauranteId} requiere escaneo QR o está cargando.`);
-            return false;
-        }
 
-        const chatId = `${telefono.replace(/\D/g, '')}@c.us`;
-
-        // 3. Validar si el usuario existe en WhatsApp
-        const existeEnWhatsApp = await client.isRegisteredUser(chatId);
-        if (!existeEnWhatsApp) {
-            console.log(`⚠️ El número ${telefono} no tiene WhatsApp activo.`);
-            return false;
-        }
-
-        // 4. Convertir el buffer del PDF recibido de Angular a Base64 en caliente
-        const media = new MessageMedia(
-            'application/pdf', 
-            fileBuffer.toString('base64'), 
-            fileName
-        );
-
-        // 5. Enviar el texto y luego el documento PDF adjunto
-        await client.sendMessage(chatId, mensaje);
-        await client.sendMessage(chatId, media);
-        
-        console.log(`✅ Factura PDF enviada con éxito a: ${telefono} (Local: ${restauranteId})`);
-        return true;
-    } catch (error) {
-        console.error(`❌ Error enviando Factura PDF en local ${restauranteId}:`, error.message);
-        return false;
-    }
-};
-
-module.exports = { crearClienteWhatsApp, enviarMensajeWhatsApp, enviarFacturaWhatsApp };
+module.exports = { crearClienteWhatsApp, enviarMensajeWhatsApp };

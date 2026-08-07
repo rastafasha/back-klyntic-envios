@@ -1,4 +1,3 @@
-// Load environment variables FIRST - before any other requires
 require('dotenv').config();
 const express = require('express');
 const { dbConnection } = require('./database/config');
@@ -6,6 +5,9 @@ const cors = require('cors');
 const path = require('path');
 const socketIO = require('socket.io');
 require('./config/recordatorios-cron');
+const { restaurarSesionesDeDoctores } = require('./controllers/consultoriosController');
+// El delay auxiliar para el index
+const delay = ms => new Promise(res => setTimeout(res, ms));
 
 // Check if we're running on a serverless platform
 const isServerless = process.env.RENDER === '1' || process.env.VERCEL === '1';
@@ -40,31 +42,26 @@ const allowedOrigins = [
 
 // Configuración compartida inteligente para SaaS Multi-Tenant
 const corsOptions = {
-  origin: (origin, callback) => {
-    if (!origin) return callback(null, true);
-    
-    const esSubdominioKlyntic = /\.klyntic\.com$/.test(origin) || origin === "https://klyntic.com" || origin === "http://klyntic.com";
-    
-    if (esSubdominioKlyntic || allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      console.log(`[CORS RECHAZADO]: El origen ${origin} no tiene permisos.`);
-      callback(new Error('Origin no permitido por CORS'));
-    }
-  },
-  
-  // 🛡️ SOLUCIÓN AL 401: Autoriza explícitamente al navegador a enviar los tokens de Angular
-  allowedHeaders: ["Content-Type", "Authorization", "x-token", "Accept","auth_token"], 
-  
-  methods: "GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS", // Asegúrate de incluir OPTIONS
-  credentials: true,
-  optionsSuccessStatus: 204
+    origin: (origin, callback) => {
+        if (!origin) return callback(null, true);
+
+        const esSubdominioKlyntic = /\.klyntic\.com$/.test(origin) || origin === "https://klyntic.com" || origin === "http://klyntic.com";
+
+        if (esSubdominioKlyntic || allowedOrigins.includes(origin)) {
+            callback(null, true);
+        } else {
+            console.log(`[CORS RECHAZADO]: El origen ${origin} no tiene permisos.`);
+            callback(new Error('Origin no permitido por CORS'));
+        }
+    },
+
+    // 🛡️ SOLUCIÓN AL 401: Autoriza explícitamente al navegador a enviar los tokens de Angular
+    allowedHeaders: ["Content-Type", "Authorization", "x-token", "Accept", "auth_token"],
+
+    methods: "GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS", // Asegúrate de incluir OPTIONS
+    credentials: true,
+    optionsSuccessStatus: 204
 };
-
-// No olvides aplicar las opciones al middleware global
-app.use(cors(corsOptions));
-
-
 
 // 1. Aplicar a las rutas normales de Express (REST API)
 
@@ -81,67 +78,87 @@ module.exports.io = io;
 app.use(express.json());
 
 // Wrap everything in async function to properly await dbConnection
+// =========================================================================
+// 🚀 ARRANQUE SECUENCIAL COMPLETO 
+// =========================================================================
+
 const startServer = async () => {
-    //db
-    await dbConnection();
+    try {
+        // 1. Conectamos la base de datos primero de forma limpia
+        await dbConnection();
+        console.log('📦 Inicialización de base de datos completada.');
 
-    //directiorio publico de pruebas de google
-    app.use(express.static('public'));
+        // =========================================================================
+        // ⚙️ MIDDLEWARES GLOBALES (¡DEBEN IR ANTES DE LAS RUTAS!)
+        // =========================================================================
+        app.use(express.json()); // Reemplaza de forma nativa a bodyParser.json()
+        app.use(express.urlencoded({ extended: true }));
+        // app.use(express.static(path.join(__dirname, 'public'))); // Directorio público limpio
 
-    //rutas
+        // Configuración de WebPush Notifications
+        const vapidKeys = {
+            "publicKey": process.env.VAPI_KEY_PUBLIC,
+            "privateKey": process.env.VAPI_KEY_PRIVATE
+        };
+        webpush.setVapidDetails(
+            'mailto:mercadocreativo@gmail.com',
+            vapidKeys.publicKey,
+            vapidKeys.privateKey,
+        );
 
+        // =========================================================================
+        // 🌐 DECLARACIÓN DE RUTAS DE TU API
+        // =========================================================================
+        app.use('/api/notipush', require('./routes/notipush'));
+        // === SECCIÓN SAAS MÉDICO (Klyntic) ===
+        app.use('/api/klyntic/notificaciones', require('./routes/notificacionesKlynticRoutes'));
+        app.use('/api/klyntic/consultorios', require('./routes/consultoriosRoutes'));
+        app.use('/api/tasadollarbcv', require('./routes/tasadollarbcv'));
+        app.use('/api/tasas', require('./routes/tasas'));
+        app.use('/api/envio', require('./routes/envio'));
 
-    //notificacioens
-    app.use('/api/notipush', require('./routes/notipush'));
-
-    // === SECCIÓN SAAS MÉDICO (Klyntic) ===
-    app.use('/api/klyntic/notificaciones', require('./routes/notificacionesKlynticRoutes'));
-    app.use('/api/klyntic/consultorios', require('./routes/consultoriosRoutes'));
-    app.use('/api/tasadollarbcv', require('./routes/tasadollarbcv'));
-    app.use('/api/tasas', require('./routes/tasas'));
-    app.use('/api/envio', require('./routes/envio'));
-
-    //notification
-    const vapidKeys = {
-        "publicKey": process.env.VAPI_KEY_PUBLIC,
-        "privateKey": process.env.VAPI_KEY_PRIVATE
-    };
-
-    webpush.setVapidDetails(
-        'mailto:example@youremail.com',
-        vapidKeys.publicKey,
-        vapidKeys.privateKey,
-    );
-
-    app.use(bodyParser.json());
-
-    //test
-    app.get("/", (req, res) => {
-        res.json({ message: "Welcome to nodejs." });
-    });
-
-    //lo ultimo
-    app.get('*', (req, res) => {
-        res.sendFile(path.resolve(__dirname, 'public')); //ruta para produccion, evita perder la ruta
-    });
-
-    // Global error handling middleware
-    app.use((err, req, res, next) => {
-        console.error('Global error handler caught an error:', err);
-        res.status(500).json({
-            ok: false,
-            msg: 'Internal Server Error',
-            error: err.message || err.toString()
+        // Test Endpoint de bienvenida
+        app.get("/bienvenida", (req, res) => {
+            res.json({ message: "Welcome to nodejs." });
         });
-    });
 
-    // Solo iniciar servidor local si no estamos en Vercel
-    // if (process.env.VERCEL !== '1') {
-    //     server.listen(process.env.PORT, () => {
-    //         console.log('Servidor en puerto: ' + process.env.PORT);
-    //     });
-    // }
+        // =========================================================================
+        // 🚨 ENCENDIDO DEL PUERTO EN RENDER (Dentro de tu única función startServer)
+        // =========================================================================
+        if (process.env.VERCEL !== '1') {
+            const PORT = process.env.PORT || 3000; // Render usa el puerto 5000 por defecto si no hay variable de entorno
+
+            server.listen(PORT, () => {
+                console.log(`✅ Servidor Klyntic ejecutándose con éxito en puerto: ${PORT}`);
+            });
+
+            // ⏳ El seguro de Render: Esperamos 5 segundos a que el hardware se asiente
+            console.log('⏱ Estabilizando entorno... Esperando 5 segundos antes de WhatsApp.');
+            await new Promise(resolve => setTimeout(resolve, 3000));
+
+            // Disparamos la restauración progresiva de tus médicos (1 por uno cada 8 segundos)
+            await restaurarSesionesDeDoctores();
+        }
+
+        // =========================================================================
+        // 🕳️ COMPATIBILIDAD FRONTEND (Al puro final, después de prender el puerto)
+        // =========================================================================
+        // app.get('*', (req, res) => {
+        //     res.sendFile(path.resolve(__dirname, 'public', 'index.html')); // Envía el index real de Angular en producción
+        // });
+
+        // Global error handling middleware
+        app.use((err, req, res, next) => {
+            console.error('Global error handler caught an error:', err);
+            res.status(500).json({ ok: false, msg: 'Internal Server Error', error: err.message || err.toString() });
+        });
+
+    } catch (error) {
+        console.error('❌ Error crítico inicializando el servidor:', error.message);
+        process.exit(1);
+    }
 };
+
 
 // Start the server
 startServer().catch(err => {
@@ -149,24 +166,18 @@ startServer().catch(err => {
     process.exit(1);
 });
 
-// For traditional server (including Render.com)
-const PORT = process.env.PORT || 5000;
 
-// Only start the HTTP server if not in serverless mode (Vercel)
-// On Render, we need to start the server normally (not serverless)
-// On Vercel, we export the handler for serverless
-if (process.env.VERCEL !== '1') {
-    server.listen(PORT, () => {
-        console.log(`✅ Servidor ejecutándose en puerto: ${PORT}`);
-        console.log(`🌐 Entorno: ${isRender ? 'Render.com' : 'Local/Production'}`);
-    });
-}
 
-// Export for serverless platforms (Vercel)
+
+
+
+
+// Agrupa todas las exportaciones al final de tu index.js de forma limpia:
+const exportaciones = { app, server, io };
+
 if (typeof serverless !== 'undefined' && serverless) {
-    module.exports.handler = serverless(app);
+    exportaciones.handler = serverless(app);
 }
 
-// Export app for testing and other uses
-module.exports = { app, server, io };
+module.exports = exportaciones;
 
