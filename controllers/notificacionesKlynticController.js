@@ -14,9 +14,9 @@ const delay = ms => new Promise(res => setTimeout(res, ms));
 const recibirAlertaDesdeLaravel = async (req, res) => {
     try {
         // Recibimos tanto los datos de WhatsApp como los nuevos campos de la app de Klyntic
-        const { 
-            consultorio_id, 
-            telefono, 
+        const {
+            consultorio_id,
+            telefono,
             mensaje,
             usuario,          // ID del médico o paciente de MySQL
             rolDestinatario,  // 'MEDICO' o 'PACIENTE'
@@ -46,26 +46,36 @@ const recibirAlertaDesdeLaravel = async (req, res) => {
         }
 
         // =========================================================================
-        // 💬 TAREA 2: Envío de WhatsApp Automático (Tu lógica original)
+        // 💬 TAREA 2: Encolado de WhatsApp Seguro (Anti-Colapso de RAM)
         // =========================================================================
         if (telefono) {
-            let telefonoLimpio = telefono.replace(/\D/g, ''); 
+            let telefonoLimpio = telefono.replace(/\D/g, '');
             if (telefonoLimpio.startsWith('0')) {
-                telefonoLimpio = '58' + telefonoLimpio.substring(1); 
+                telefonoLimpio = '58' + telefonoLimpio.substring(1);
             }
 
-            // Node busca el Chrome invisible de ese consultorio_id y dispara el WhatsApp
-            enviarMensajeWhatsApp(consultorio_id, telefonoLimpio, mensaje)
-                .then(enviado => {
-                    if (enviado) console.log(`💬 WhatsApp médico enviado para el consultorio: ${consultorio_id}`);
-                })
-                .catch(err => console.error('Error enviando WhatsApp médico:', err.message));
+            // 🚀 EN LUGAR DE PRENDER PUPPETEER EN CALIENTE, GUARDAMOS EN LA COLA DE MONGO
+            // Esto protege tu servidor Render de picos de tráfico masivos
+            const NotificacionCola = require('../models/notificacionCola'); // Creamos un modelo simple para la cola
+
+            await NotificacionCola.findOneAndUpdate(
+                { referenciaId: String(referenciaId) }, // Evita mensajes duplicados de la misma cita
+                {
+                    consultorio_id: String(consultorio_id),
+                    telefono: telefonoLimpio,
+                    mensaje: mensaje,
+                    estado: 'PENDIENTE', // El Cron lo leerá en su próxima vuelta
+                    intentos: 0
+                },
+                { upsert: true, new: true, setDefaultsOnInsert: true }
+            ).catch(err => console.error('❌ Error al guardar en cola de WhatsApp:', err.message));
         }
 
+
         // Respondemos de inmediato a Laravel
-        return res.status(200).json({ 
-            ok: true, 
-            msg: 'Orden de recordatorio y notificación interna procesadas por Node.' 
+        return res.status(200).json({
+            ok: true,
+            msg: 'Orden de recordatorio y notificación interna procesadas por Node.'
         });
 
     } catch (error) {
@@ -79,7 +89,7 @@ const recibirAlertaDesdeLaravel = async (req, res) => {
 const obtenerHistorialMedico = async (req, res) => {
     try {
         // 1. Extraemos el usuarioId de los parámetros o del token
-        const usuarioId = req.params.id || req.uid; 
+        const usuarioId = req.params.id || req.uid;
 
         if (!usuarioId) {
             return res.status(400).json({ ok: false, msg: 'No se proporcionó el ID del usuario' });
@@ -103,12 +113,12 @@ const obtenerHistorialMedico = async (req, res) => {
         // 4. 🔥 CÁLCULO DEL PRÓXIMO: Si todavía quedan más registros por cargar, calculamos el número de la siguiente página
         const totalPaginas = Math.ceil(totalNotificaciones / limitePorPagina);
         const proximo = pagina < totalPaginas ? pagina + 1 : null;
-        
+
         // Retornamos exactamente el objeto que tu interfaz de Angular está esperando
-        return res.json({ 
-            ok: true, 
-            notificaciones, 
-            proximo 
+        return res.json({
+            ok: true,
+            notificaciones,
+            proximo
         });
 
     } catch (error) {
@@ -160,7 +170,7 @@ const borrarTodasLasNotificacionesMedicas = async (req, res) => {
 
 const enviarRecordatoriosMasivos = async (req, res) => {
     try {
-        const { recordatorios } = req.body; 
+        const { recordatorios } = req.body;
 
         // Validación de seguridad para el payload JSON de Laravel
         if (!recordatorios || !Array.isArray(recordatorios)) {
@@ -175,31 +185,38 @@ const enviarRecordatoriosMasivos = async (req, res) => {
         // Procesamos la ráfaga de mensajes en segundo plano dentro de Node.js
         for (const item of recordatorios) {
             const { doctor_id, telefono, mensaje } = item;
+            const idDoctorStr = String(doctor_id);
 
-            // 1. Validamos en MongoDB si el consultorio del doctor está CONECTADO
-            const consultorio = await Consultorio.findById(doctor_id);
+            // 🚀 MEJORA ABSOLUTA: Validamos el estado real al instante desde la memoria RAM global
+            const estadoEnMemoria = global.whatsappStates && global.whatsappStates[idDoctorStr];
+            const clienteActivo = global.whatsappClients && global.whatsappClients[idDoctorStr];
 
-            if (consultorio && consultorio.whatsappStatus === 'CONECTADO') {
-                
-                // 🚀 DISPARO REAL: Invocamos al motor de WhatsApp heredado de restaurantes
-                // El helper se encarga de isRegisteredUser, enviar el mensaje y registrar en consola
-                const enviado = await enviarMensajeWhatsApp(doctor_id, telefono, mensaje);
-                
+            if (estadoEnMemoria && estadoEnMemoria.whatsappStatus === 'CONECTADO' && clienteActivo) {
+
+                // Formateo rápido anti-errores antes de enviar
+                let telefonoLimpio = telefono.replace(/\D/g, '');
+                if (telefonoLimpio.startsWith('0')) {
+                    telefonoLimpio = '58' + telefonoLimpio.substring(1);
+                }
+
+                // 🚀 DISPARO REAL DESDE LA INSTANCIA DE MEMORIA
+                const enviado = await enviarMensajeWhatsApp(idDoctorStr, telefonoLimpio, mensaje);
+
                 if (enviado) {
-                    console.log(`[ÉXITO] Recordatorio enviado al paciente ${telefono} desde el canal del Doctor ID: ${doctor_id}`);
+                    console.log(`[ÉXITO] Recordatorio enviado al paciente ${telefonoLimpio} desde el canal del Doctor ID: ${idDoctorStr}`);
                 } else {
-                    console.log(`[FALLO] No se pudo entregar el mensaje al número ${telefono} a través del helper.`);
+                    console.log(`[FALLO] No se pudo entregar el mensaje al número ${telefonoLimpio}.`);
                 }
 
             } else {
-                console.log(`[IGNORADO] El consultorio ${doctor_id} está DESCONECTADO. No se puede enviar el mensaje a ${telefono}.`);
+                console.log(`[IGNORADO] El consultorio ${idDoctorStr} está DESCONECTADO en RAM. No se envía a ${telefono}.`);
             }
-            // =========================================================================
-            // ⏳ SOLUCIÓN: Pausa de 3 a 4 segundos entre cada mensaje del lote
-            // =========================================================================
+
+            // ⏳ Mantenemos tu excelente pausa protectora anti-spam
             console.log(`⏱ Esperando 3.5 segundos antes del siguiente recordatorio...`);
-            await delay(3500); 
+            await delay(3500);
         }
+
 
     } catch (error) {
         // Como ya respondimos 200 a Laravel, los errores se quedan exclusivamente en tu consola local

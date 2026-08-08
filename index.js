@@ -5,6 +5,7 @@ const cors = require('cors');
 const path = require('path');
 const socketIO = require('socket.io');
 require('./config/recordatorios-cron');
+// require('./config/cron-envioswhatsapp');// cuando pague el servidor 
 const { restaurarSesionesDeDoctores } = require('./controllers/consultoriosController');
 // El delay auxiliar para el index
 const delay = ms => new Promise(res => setTimeout(res, ms));
