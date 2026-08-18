@@ -8,7 +8,6 @@ global.inicializandoClientes = global.inicializandoClientes || {};
 global.whatsappStates = global.whatsappStates || {};
 
 const crearClienteWhatsApp = async (consultorioId) => {
-    // 🚀 Mantenemos el ID original para la librería, pero creamos un string solo para las llaves de la RAM
     const idStr = consultorioId.toString();
 
     if (global.whatsappClients[idStr]) {
@@ -30,24 +29,17 @@ const crearClienteWhatsApp = async (consultorioId) => {
         const isProduction = process.env.NODE_ENV === 'production';
 
         const client = new Client({
-            // 🚀 IMPORTANTE: Usamos el ID original/limpio aquí para que coincida con tus sesiones previas
             authStrategy: new LocalAuth({
                 clientId: `consultorio_${idStr}`,
                 dataPath: './.wwebjs_auth'
             }),
-            webVersionCache: {
-                type: 'remote',
-                remotePath: 'https://githubusercontent.com'
-            },
+            // 🚀 CORRECCIÓN 1: Eliminamos webVersionCache conflictivo. 
+            // Dejamos que la librería use su propia estrategia nativa actualizada.
             puppeteer: {
-                // 🚀 TRUE para que corra invisible en segundo plano consumiendo la mitad de RAM
                 headless: true,
-                // 🚀 Híbrido: Si está en Render usa su Chrome nativo, si está en desarrollo usa el tuyo de Mac
-                // 🚀 SI ESTÁ EN PRODUCCIÓN DEJAMOS INDEFINIDO PARA QUE DISPARE LA DESCARGA DEL SCRIPT
                 executablePath: isProduction
                     ? undefined
                     : '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-
                 args: [
                     '--no-sandbox',
                     '--disable-setuid-sandbox',
@@ -58,9 +50,8 @@ const crearClienteWhatsApp = async (consultorioId) => {
                     '--disable-extensions',
                     '--disable-blink-features=AutomationControlled',
                     '--user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
-                    // 🚀 OPTIMIZACIONES EXTREMAS DE RAM PARA SERVIDORES PEQUEÑOS:
-                    '--js-flags="--max-old-space-size=150"', // Limita el motor V8 de Chromium a usar max 150MB
-                    '--disable-canvas-features',
+                    // 🚀 CORRECCIÓN 2: Subimos a 512MB. Menos de esto crashea el lector QR de WhatsApp.
+                    '--js-flags="--max-old-space-size=512"', 
                     '--disable-speech-api',
                     '--disable-background-networking',
                     '--disable-background-timer-throttling',
@@ -72,16 +63,14 @@ const crearClienteWhatsApp = async (consultorioId) => {
                     '--disable-features=Translate',
                     '--disable-ipc-flooding-protection',
                     '--disable-renderer-backgrounding',
-                    '--enable-features=NetworkServiceInProcess2',
                     '--mute-audio',
                     '--no-default-browser-check'
-                    
                 ]
             }
         });
 
         // =========================================================================
-        // 📡 EVENTOS ACTUALIZADOS USANDO ID STRING PARA LA MEMORIA
+        // 📡 EVENTO QR: Genera y actualiza base de datos
         // =========================================================================
         client.on('qr', async (qr) => {
             console.log(`✨ [CONSOLA] ¡QR Generado con éxito para consultorio: ${idStr}!`);
@@ -91,32 +80,29 @@ const crearClienteWhatsApp = async (consultorioId) => {
                 global.whatsappStates[idStr].whatsappStatus = 'ESPERANDO_QR';
                 global.whatsappStates[idStr].whatsappQR = qrBase64;
 
-                Consultorio.findByIdAndUpdate(consultorioId, {
+                // Cambiar el estado para que Angular lo reciba
+                await Consultorio.findByIdAndUpdate(consultorioId, {
                     whatsappStatus: 'ESPERANDO_QR',
                     whatsappQR: qrBase64
-                }).catch(err => console.error('Error BD QR:', err.message));
+                });
 
             } catch (err) {
                 console.error('Error generando QR Base64:', err.message);
             }
         });
+
         // =========================================================================
-        // 🚀 EVENTO READY: Se dispara cuando el escaneo es exitoso
+        // 🚀 EVENTO READY
         // =========================================================================
         client.on('ready', async () => {
             console.log(`🚀 ¡WhatsApp conectado para el consultorio: ${idStr}!`);
-
-            // 1. FORZAMOS EL BORRADO DEL SEMÁFORO DE ARRANQUE
             delete global.inicializandoClientes[idStr];
 
-            // 2. ACTUALIZAMOS LA MEMORIA RAM DE INMEDIATO CON EL ESTADO DEFINITIVO
-            global.whatsappStates = global.whatsappStates || {};
             global.whatsappStates[idStr] = {
                 whatsappStatus: 'CONECTADO',
-                whatsappQR: '' // Limpiamos el string Base64 viejo
+                whatsappQR: ''
             };
 
-            // 3. Guardamos en la Base de Datos para persistencia a largo plazo
             try {
                 await Consultorio.findByIdAndUpdate(consultorioId, {
                     whatsappStatus: 'CONECTADO',
@@ -129,77 +115,68 @@ const crearClienteWhatsApp = async (consultorioId) => {
             }
         });
 
-
         // =========================================================================
-        // ❌ EVENTO DISCONNECTED: Se dispara si el médico cierra sesión desde el móvil
+        // ❌ EVENTO DISCONNECTED
         // =========================================================================
         client.on('disconnected', async (reason) => {
             console.log(`❌ WhatsApp desconectado en consultorio ${idStr}. Razón: ${reason}`);
-
-            // 1. Limpiamos por completo este ID de todas las memorias RAM
             delete global.whatsappClients[idStr];
             delete global.inicializandoClientes[idStr];
-            if (global.whatsappStates) {
-                delete global.whatsappStates[idStr];
-            }
+            if (global.whatsappStates[idStr]) delete global.whatsappStates[idStr];
 
-            // 2. 🚨 CRÍTICO: Devolvemos la base de datos a DESCONECTADO para que Angular permita revincular
             try {
                 await Consultorio.findByIdAndUpdate(consultorioId, {
                     whatsappStatus: 'DESCONECTADO',
                     whatsappQR: '',
                     whatsappConnectedAt: null
                 });
-                console.log(`[ID ${idStr}] ✅ MongoDB actualizado a DESCONECTADO por desvinculación.`);
             } catch (dbErr) {
                 console.error('Error al actualizar BD en disconnected:', dbErr.message);
             }
         });
 
-
         // =========================================================================
-        // 🏁 INICIALIZACIÓN ASÍNCRONA BLINDADA PARA LA RAM DE RENDER
+        // 🏁 INICIALIZACIÓN
         // =========================================================================
         console.log(`⏳ Lanzando inicialización de Puppeteer en segundo plano para ${idStr}...`);
         
         client.initialize().then(() => {
             global.whatsappClients[idStr] = client;
 
-            // 🚀 INTERCEPTOR ANTI-CAÍDAS: Filtramos el tráfico gráfico en el segundo uno
-            setTimeout(async () => {
-                try {
-                    const page = client.pupPage;
-                    if (page) {
-                        await page.setRequestInterception(true);
-                        page.on('request', (request) => {
-                            const resourceType = request.resourceType();
-                            // Bloqueamos avatares, imágenes pesadas, hojas de estilo CSS secundarias y tipografías
-                            if (['image', 'media', 'font', 'stylesheet'].includes(resourceType)) {
-                                request.abort();
-                            } else {
-                                request.continue();
-                            }
-                        });
-                        console.log(`🛡️ [RAM PROTECTED] Interceptor de red activado con éxito para ID: ${idStr}`);
+            // 🚀 CORRECCIÓN 3: El interceptor de tráfico multimedia SOLO se activa 
+            // cuando el cliente ya se encuentra 'READY' (Conectado), no antes.
+            client.on('ready', () => {
+                setTimeout(async () => {
+                    try {
+                        const page = client.pupPage;
+                        if (page) {
+                            await page.setRequestInterception(true);
+                            page.on('request', (request) => {
+                                const resourceType = request.resourceType();
+                                // Bloqueamos elementos pesados una vez ya iniciada la sesión
+                                if (['image', 'media', 'font'].includes(resourceType)) {
+                                    request.abort();
+                                } else {
+                                    request.continue();
+                                }
+                            });
+                        }
+                    } catch (e) {
+                        console.error('Error al setear interceptor post-ready:', e.message);
                     }
-                } catch (interceptorErr) {
-                    console.error('Error al inyectar el interceptor de RAM:', interceptorErr.message);
-                }
-            }, 2000); // Esperamos 2 segundos a que Puppeteer instancie la pestaña interna
-
+                }, 5000);
+            });
         }).catch(err => {
-            console.error(`❌ Falló initialize diferido para ${idStr}:`, err.message);
-            delete global.inicializandoClientes[idStr];
-            delete global.whatsappStates[idStr];
+            console.error(`Error al inicializar cliente ${idStr}:`, err.message);
+            global.whatsappStates[idStr] = { whatsappStatus: 'ERROR', whatsappQR: '' };
         });
 
-        return client;
-
     } catch (error) {
-        delete global.inicializandoClientes[idStr];
-        return null;
+        console.error(`Error crítico creando cliente ${idStr}:`, error.message);
+        global.whatsappStates[idStr] = { whatsappStatus: 'ERROR', whatsappQR: '' };
     }
 };
+
 
 
 const enviarMensajeWhatsApp = async (consultorioId, telefono, mensaje) => {
