@@ -71,6 +71,6 @@ function formatearTelefono(tel) {
 }
 
 // Disparamos la ejecución al encender el contenedor
-ejecutarRecordatorios();
+// ejecutarRecordatorios();
 
 module.exports = { ejecutarRecordatorios };
