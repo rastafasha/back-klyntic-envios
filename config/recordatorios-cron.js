@@ -19,22 +19,20 @@ async function ejecutarRecordatorios() {
     
     if (!process.env.LARAVEL_API_URL || !process.env.WEBHOOK_SECRET_TOKEN) {
         console.error('❌ ERROR CRÍTICO: Faltan variables de entorno esenciales.');
-        return; // Retornamos en lugar de apagar el proceso
+        process.exit(1); // 🚀 CORRECCIÓN: Apaga con error para que Render te avise
     }
 
     let respuesta;
     try {
         const urlLaravel = `${process.env.LARAVEL_API_URL}/api/appointments/cron-pendientes`;
         
-        // Intentamos obtener las citas pendientes
         respuesta = await axios.get(urlLaravel, {
             headers: { 'Authorization': `Bearer ${process.env.WEBHOOK_SECRET_TOKEN}` }
         });
     } catch (apiError) {
-        // SI EL ENDPOINT DA 404, AQUÍ LO ATRAPAMOS SIN QUE SE DETENGA EL SERVIDOR
-        console.error('⚠️ Laravel devolvió un error al consultar citas (Posible 404 por datos simulados):', apiError.message);
+        console.error('⚠️ Laravel devolvió un error al consultar citas:', apiError.message);
         console.log('💤 Cancelando iteración actual por falta de conexión válida.');
-        return; // Detiene la ejecución de este ciclo de forma segura sin matar el proceso de Node
+        process.exit(0); // 🚀 CORRECCIÓN: Apaga el contenedor de inmediato de forma limpia
     }
 
     try {
@@ -44,57 +42,21 @@ async function ejecutarRecordatorios() {
 
         if (citasProximas.length === 0) {
             console.log('💤 No hay citas médicas próximas con [cron_state = 1] para notificar.');
-            return;
+            process.exit(0); // 🚀 CORRECCIÓN: Apaga el contenedor ya que no hay trabajo
         }
 
         console.log(`📦 Se encontraron ${citasProximas.length} citas pendientes por procesar...`);
 
         for (const cita of citasProximas) {
-            const citaId = cita.id || cita.cita_id; 
-            const telefonoDestino = formatearTelefono(cita.telefono_paciente);
-            const consultorioId = cita.consultorio_id ? cita.consultorio_id.toString() : 'Sin ID';
-
-            // Enviar mensaje por WhatsApp
-            if (cita.enviar_whatsapp && telefonoDestino) {
-                try {
-                    const enviadoWS = await enviarMensajeWhatsApp(consultorioId, telefonoDestino, cita.mensaje_whatsapp);
-                    if (enviadoWS) console.log(`💬 WhatsApp médico entregado para la cita: ${citaId}`);
-                } catch (wsError) {
-                    console.error(`❌ Error en módulo WhatsApp para cita ${citaId}:`, wsError.message);
-                }
-            }
-
-            // Enviar mensaje por Correo Electrónico
-            if (cita.enviar_email && cita.email_paciente) {
-                try {
-                    await transporter.sendMail({
-                        from: process.env.EMAIL_BACKEND,
-                        to: cita.email_paciente,
-                        subject: cita.asunto_email || 'Recordatorio de tu Cita Médica 🏥',
-                        text: cita.mensaje_email
-                    });
-                    console.log(`📧 Correo médico enviado a: ${cita.email_paciente}`);
-                } catch (emailError) {
-                    console.error(`❌ Error enviando correo para cita ${citaId}:`, emailError.message);
-                }
-            }
-
-            // Actualización de estado controlada
-            const urlUpdate = `${process.env.LARAVEL_API_URL}/api/appointments/update-cron-state/${citaId}`;
-            try {
-                await axios.post(urlUpdate, {}, {
-                    headers: { 'Authorization': `Bearer ${process.env.WEBHOOK_SECRET_TOKEN}` }
-                });
-                console.log(`✅ Cita ${citaId} marcada como procesada (cron_state = 2).`);
-            } catch (updateError) {
-                console.warn(`⚠️ Aviso: No se pudo actualizar el estado de la cita ${citaId} en Laravel:`, updateError.message);
-            }
+            // ... (Manten tu bucle for idéntico como lo tienes) ...
         }
 
         console.log('🚀 [Klyntic Cron] Proceso terminado con éxito de forma limpia.');
+        process.exit(0); // 🚀 CORRECCIÓN: Éxito total. Matamos el proceso para que Render corte la factura.
 
     } catch (error) {
         console.error('❌ Error general inesperado en el extractor médico:', error.message);
+        process.exit(1); // Apaga informando el error inesperado
     }
 }
 
