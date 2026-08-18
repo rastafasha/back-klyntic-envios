@@ -51,7 +51,7 @@ const crearClienteWhatsApp = async (consultorioId) => {
                     '--disable-blink-features=AutomationControlled',
                     '--user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
                     // 🚀 CORRECCIÓN 2: Subimos a 512MB. Menos de esto crashea el lector QR de WhatsApp.
-                    '--js-flags="--max-old-space-size=512"', 
+                    '--js-flags="--max-old-space-size=512"',
                     '--disable-speech-api',
                     '--disable-background-networking',
                     '--disable-background-timer-throttling',
@@ -75,16 +75,30 @@ const crearClienteWhatsApp = async (consultorioId) => {
         client.on('qr', async (qr) => {
             console.log(`✨ [CONSOLA] ¡QR Generado con éxito para consultorio: ${idStr}!`);
             try {
-                const qrBase64 = await QRCode.toDataURL(qr);
+                const qrBase64 = await QRCode.toDataURL(qr, {
+                    errorCorrectionLevel: 'L',
+                    margin: 2,
+                    width: 300
+                });
 
                 global.whatsappStates[idStr].whatsappStatus = 'ESPERANDO_QR';
                 global.whatsappStates[idStr].whatsappQR = qrBase64;
 
-                // Cambiar el estado para que Angular lo reciba
                 await Consultorio.findByIdAndUpdate(consultorioId, {
                     whatsappStatus: 'ESPERANDO_QR',
                     whatsappQR: qrBase64
                 });
+
+                // 🚀 CRÍTICO: Envía el evento por Sockets al frontend de Angular
+                // Asegúrate de usar la instancia global de socket.io de tu servidor (ej. global.io)
+                if (global.io) {
+                    global.io.emit('whatsapp-status-changed', {
+                        doctorId: idStr, // Coincide con data.doctorId en Angular
+                        whatsappStatus: 'ESPERANDO_QR',
+                        whatsappQR: qrBase64
+                    });
+                    console.log(`📡 [SOCKET] Evento QR enviado a Angular para ID: ${idStr}`);
+                }
 
             } catch (err) {
                 console.error('Error generando QR Base64:', err.message);
@@ -98,10 +112,7 @@ const crearClienteWhatsApp = async (consultorioId) => {
             console.log(`🚀 ¡WhatsApp conectado para el consultorio: ${idStr}!`);
             delete global.inicializandoClientes[idStr];
 
-            global.whatsappStates[idStr] = {
-                whatsappStatus: 'CONECTADO',
-                whatsappQR: ''
-            };
+            global.whatsappStates[idStr] = { whatsappStatus: 'CONECTADO', whatsappQR: '' };
 
             try {
                 await Consultorio.findByIdAndUpdate(consultorioId, {
@@ -109,7 +120,15 @@ const crearClienteWhatsApp = async (consultorioId) => {
                     whatsappQR: '',
                     whatsappConnectedAt: new Date()
                 });
-                console.log(`[ID ${idStr}] BD actualizada con éxito a CONECTADO.`);
+
+                // 🚀 CRÍTICO: Notifica a Angular que el médico ya escaneó con éxito
+                if (global.io) {
+                    global.io.emit('whatsapp-status-changed', {
+                        doctorId: idStr,
+                        whatsappStatus: 'CONECTADO',
+                        whatsappQR: ''
+                    });
+                }
             } catch (dbErr) {
                 console.error('Error actualizando BD en ready:', dbErr.message);
             }
@@ -139,7 +158,7 @@ const crearClienteWhatsApp = async (consultorioId) => {
         // 🏁 INICIALIZACIÓN
         // =========================================================================
         console.log(`⏳ Lanzando inicialización de Puppeteer en segundo plano para ${idStr}...`);
-        
+
         client.initialize().then(() => {
             global.whatsappClients[idStr] = client;
 
