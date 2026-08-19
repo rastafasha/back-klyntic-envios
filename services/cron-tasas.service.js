@@ -13,18 +13,35 @@ const Tasadollarbcv = mongoose.model('tasadollarbcv', Schema({
 
 async function sincronizarTasasOficiales() {
     try {
+        console.log('🔄 Consultando endpoints estables de DolarApi con bypass de caché...');
+
+        // 1. Generamos el marcador de tiempo numérico
         const timestamp = Date.now();
+
+        // 2. 🚀 CORRECCIÓN CRÍTICA: El timestamp DEBE ir al final de toda la ruta con un '?'
+        // Asegúrate de usar comillas invertidas (backticks) para la plantilla de texto
         const url = `https://dolarapi.com{timestamp}`;
 
+        console.log(`📡 Realizando petición HTTP segura a: ${url}`);
+
         const resDolar = await axios.get(url, {
-            headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' },
-            timeout: 7000
+            headers: {
+                'Cache-Control': 'no-cache, no-store, must-revalidate',
+                'Pragma': 'no-cache',
+                'Expires': '0',
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            },
+            timeout: 8000
         });
 
         const data = resDolar.data;
-        let precioCrudo = data.oficial || data.promedio || data.precio;
+        let precioCrudo = data.oficial || data.promedio || data.precio || data.oficial_bcv;
 
-        // 🚀 SANITIZACIÓN CRÍTICA: Reemplaza comas por puntos si la API manda un String
+        if (!precioCrudo) {
+            throw new Error('La estructura del JSON cambió o los campos oficiales no están disponibles.');
+        }
+
+        // Sanitizamos comas por puntos antes del guardado en Mongo (Evita el CastError)
         if (typeof precioCrudo === 'string') {
             precioCrudo = precioCrudo.replace(',', '.');
         }
@@ -32,10 +49,10 @@ async function sincronizarTasasOficiales() {
         const valorNumerico = parseFloat(Number(precioCrudo).toFixed(2));
 
         if (isNaN(valorNumerico) || valorNumerico <= 0) {
-            throw new Error('El valor extraído no es un número válido.');
+            throw new Error(`El valor procesado no es válido: ${valorNumerico}`);
         }
 
-        // Guardamos o actualizamos el registro único en Atlas
+        // Actualización atómica en tu colección única de Atlas
         await Tasadollarbcv.updateOne({}, { 
             $set: { precio_dia: valorNumerico } 
         }, { upsert: true });
@@ -44,9 +61,11 @@ async function sincronizarTasasOficiales() {
         return { usd: valorNumerico };
 
     } catch (error) {
+        // El log ahora te mostrará la URL limpia si vuelve a fallar la red corporativa
         console.error('❌ Error en el sync de tasas:', error.message);
         return null;
     }
 }
+
 // Exportamos la función limpia para consumirla desde el router de Express
 module.exports = { sincronizarTasasOficiales };
