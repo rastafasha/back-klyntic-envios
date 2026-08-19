@@ -187,41 +187,65 @@ const enviarRecordatoriosMasivos = async (req, res) => {
             const { doctor_id, telefono, mensaje } = item;
             const idDoctorStr = String(doctor_id);
 
-            // Validamos el estado real al instante desde la memoria RAM global
-            const estadoEnMemoria = global.whatsappStates && global.whatsappStates[idDoctorStr];
-            const clienteActivo = global.whatsappClients && global.whatsappClients[idDoctorStr];
+            let clienteActivo = global.whatsappClients && global.whatsappClients[idDoctorStr];
+            let estadoEnMemoria = global.whatsappStates && global.whatsappStates[idDoctorStr];
 
-            if (estadoEnMemoria && estadoEnMemoria.whatsappStatus === 'CONECTADO' && clienteActivo) {
-
-                // 🚀 FORMATEO INTERNACIONAL UNIFICADO ANTI-ERRORES
-                let telefonoLimpio = telefono.replace(/\D/g, ''); // Quitamos letras, espacios y símbolos
+            // =========================================================================
+            // 🚀 AUTO-DESPERTAR CLOUD: Si no está en RAM, lo levantamos desde Atlas
+            // =========================================================================
+            if (!clienteActivo) {
+                console.log(`🔍 [BULK AUTO-REVIVE] Consultorio ${idDoctorStr} no está en RAM. Buscando en MongoDB Atlas...`);
                 
-                // Si el número empieza con 0 (ej: 04121234567), cambiamos el 0 por el código de Venezuela (58)
+                // Buscamos el consultorio en tu colección de Mongoose
+                const consultorioDB = await Consultorio.findById(idDoctorStr);
+
+                // Si en la base de datos ya está en CONECTADO, forzamos su encendido automático
+                if (consultorioDB && consultorioDB.whatsappStatus === 'CONECTADO') {
+                    console.log(`🤖 [BULK AUTO-REVIVE] Sesión activa en Atlas para ID: ${idDoctorStr}. Levantando Puppeteer...`);
+                    
+                    // Ejecutamos tu función helper para meter el cliente en la RAM
+                    // Quitamos el await de aquí si crearClienteWhatsApp no retorna una promesa, o la llamamos directamente:
+                    crearClienteWhatsApp(idDoctorStr);
+                    
+                    // ⏳ LE DAMOS 15 SEGUNDOS A RENDER PARA QUE DESCARGUE LA SESIÓN DE ATLAS Y ABRA CHROMIUM
+                    console.log(`⏳ Esperando 15 segundos críticos de sincronización inicial en Render...`);
+                    await new Promise(resolve => setTimeout(resolve, 15000));
+                    
+                    // Volvemos a jalar las variables recién creadas en la RAM global
+                    clienteActivo = global.whatsappClients[idDoctorStr];
+                    estadoEnMemoria = global.whatsappStates[idDoctorStr];
+                }
+            }
+
+            // =========================================================================
+            // ⚡ DISPARO SEGURO CON LA INSTANCIA YA RECUPERADA
+            // =========================================================================
+            // Evaluamos si logramos levantar la sesión (o si ya estaba lista)
+            if (clienteActivo) {
+                
+                let telefonoLimpio = telefono.replace(/\D/g, '');
                 if (telefonoLimpio.startsWith('0')) {
                     telefonoLimpio = '58' + telefonoLimpio.substring(1);
                 }
-
-                // Agregamos el identificador obligatorio de WhatsApp (@c.us) si no lo tiene
                 if (!telefonoLimpio.endsWith('@c.us')) {
                     telefonoLimpio = `${telefonoLimpio}@c.us`;
                 }
 
                 try {
-                    // 🚀 DISPARO REAL DIRECTO DESDE LA INSTANCIA DE PUPPETEER EN RAM
+                    // Disparo real directo a la instancia de Puppeteer
                     await clienteActivo.sendMessage(telefonoLimpio, mensaje);
-                    
                     console.log(`[ÉXITO] Recordatorio enviado al paciente ${telefonoLimpio} desde el canal del Doctor ID: ${idDoctorStr}`);
                 } catch (sendError) {
                     console.error(`[FALLO NATIVO] Error al entregar mensaje en WhatsApp para ${telefonoLimpio}:`, sendError.message);
                 }
 
             } else {
-                console.log(`[IGNORADO] El consultorio ${idDoctorStr} está DESCONECTADO en RAM. No se envía a ${telefono}.`);
+                console.log(`[IGNORADO] El consultorio ${idDoctorStr} está DESCONECTADO y no se pudo auto-despertar. No se envía a ${telefono}.`);
             }
 
-            // ⏳ Tu excelente pausa protectora anti-spam (Asegúrate de tener declarada la función delay arriba)
+            // ⏳ Tu excelente pausa protectora anti-spam
             console.log(`⏱ Esperando 3.5 segundos antes del siguiente recordatorio...`);
-            await new Promise(resolve => setTimeout(resolve, 3500)); // Delay inline seguro por si no tienes la función declarada
+            await new Promise(resolve => setTimeout(resolve, 3500));
         }
 
     } catch (error) {
@@ -229,15 +253,16 @@ const enviarRecordatoriosMasivos = async (req, res) => {
     }
 };
 
+
 const enviarNotificacionPaciente = async (req, res) => {
     try {
         const { consultorioId, numero, mensaje, urlMedia } = req.body;
 
         // 1. Validaciones estrictas de los campos obligatorios
         if (!consultorioId || !numero || !mensaje) {
-            return res.status(400).json({ 
-                ok: false, 
-                msg: 'Faltan parámetros requeridos: consultorioId, numero o mensaje.' 
+            return res.status(400).json({
+                ok: false,
+                msg: 'Faltan parámetros requeridos: consultorioId, numero o mensaje.'
             });
         }
 
@@ -247,15 +272,15 @@ const enviarNotificacionPaciente = async (req, res) => {
         const client = global.whatsappClients[idStr];
 
         if (!client) {
-            return res.status(404).json({ 
-                ok: false, 
-                msg: `El WhatsApp del consultorio ${idStr} no está activo o se encuentra desconectado en Render.` 
+            return res.status(404).json({
+                ok: false,
+                msg: `El WhatsApp del consultorio ${idStr} no está activo o se encuentra desconectado en Render.`
             });
         }
 
         // 3. Formateamos el número al estándar internacional de WhatsApp (@c.us)
         // Limpiamos espacios, guiones o signos + que vengan de la base de datos
-        let numeroLimpio = numero.replace(/\D/g, ''); 
+        let numeroLimpio = numero.replace(/\D/g, '');
         if (!numeroLimpio.endsWith('@c.us')) {
             numeroLimpio = `${numeroLimpio}@c.us`;
         }
@@ -263,32 +288,32 @@ const enviarNotificacionPaciente = async (req, res) => {
         // 4. CASO A: El mensaje incluye un archivo adjunto (PDF, JPG, PNG) desde Supabase/Laravel
         if (urlMedia) {
             console.log(`📦 Descargando y empaquetando archivo multimedia: ${urlMedia}`);
-            
+
             // La clase MessageMedia descarga el archivo automáticamente desde internet
             const media = await MessageMedia.fromUrl(urlMedia, { unsafeMime: true });
-            
+
             // Enviamos el archivo colocando el mensaje de texto como "pie de página"
             await client.sendMessage(numeroLimpio, media, { caption: mensaje });
-            
-            return res.status(200).json({ 
-                ok: true, 
-                msg: 'Mensaje multimedia (archivo + texto) enviado con éxito.' 
+
+            return res.status(200).json({
+                ok: true,
+                msg: 'Mensaje multimedia (archivo + texto) enviado con éxito.'
             });
         }
 
         // 5. CASO B: Envío tradicional de Texto Plano (Recordatorios estándar)
         await client.sendMessage(numeroLimpio, mensaje);
-        
-        return res.status(200).json({ 
-            ok: true, 
-            msg: 'Mensaje de texto enviado con éxito al paciente.' 
+
+        return res.status(200).json({
+            ok: true,
+            msg: 'Mensaje de texto enviado con éxito al paciente.'
         });
 
     } catch (error) {
         console.error('❌ Error crítico en enviarNotificacionPaciente:', error.message);
-        return res.status(500).json({ 
-            ok: false, 
-            error: error.message 
+        return res.status(500).json({
+            ok: false,
+            error: error.message
         });
     }
 };
