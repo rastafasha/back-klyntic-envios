@@ -56,12 +56,14 @@ const corsOptions = {
         }
     },
 
-    // 🛡️ SOLUCIÓN AL 401: Autoriza explícitamente al navegador a enviar los tokens de Angular
+    // 🛡️ Autoriza explícitamente al navegador a enviar los tokens de Angular
     allowedHeaders: ["Content-Type", "Authorization", "x-token", "Accept", "auth_token"],
 
-    methods: "GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS", // Asegúrate de incluir OPTIONS
+    methods: "GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS", 
     credentials: true,
-    optionsSuccessStatus: 204
+    
+    // 🚀 CORRECCIÓN CRÍTICA: Cambiamos 204 por 200 para que Render no ignore los Preflights bajo alta carga
+    optionsSuccessStatus: 200 
 };
 
 // 1. Aplicar a las rutas normales de Express (REST API)
