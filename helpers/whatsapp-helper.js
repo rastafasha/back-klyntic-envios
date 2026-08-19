@@ -42,6 +42,11 @@ const crearClienteWhatsApp = async (consultorioId) => {
                 backupSyncIntervalMs: 60000,
                 clientId: `session-${idStr}` // 🚀 CORRECCIÓN 2: ID dinámico para separar los consultorios en Atlas
             }),
+            // 🚀 SOLUCIÓN AL BLOQUEO DEL TELÉFONO: Forzar la última firma web validada de WhatsApp
+                webVersionCache: {
+                    type: 'remote',
+                    remotePath: 'https://githubusercontent.com'
+                },
             // authStrategy: new LocalAuth({
             //     clientId: `consultorio_${idStr}`,
             //     dataPath: './.wwebjs_auth'
