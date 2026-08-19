@@ -2,7 +2,7 @@ const { enviarMensajeWhatsApp } = require('../helpers/whatsapp-helper');
 const NotificacionMedica = require('../models/notificacionMedica'); // Tu esquema médico en Mongo
 const Consultorio = require('../models/consultorio');
 const { MessageMedia } = require('whatsapp-web.js');
-
+const {crearClienteWhatsApp} = require('./consultoriosController');
 const colaWhatsApp = [];
 let procesandoCola = false;
 
