@@ -82,7 +82,9 @@ const crearClienteWhatsApp = async (consultorioId) => {
                     '--disable-ipc-flooding-protection',
                     '--disable-renderer-backgrounding',
                     '--mute-audio',
-                    '--no-default-browser-check'
+                    '--no-default-browser-check',
+                    '--disable-features=OptimizationHints,OptimizationHintsFetching,Translate,IntensiveWakeUpThrottling'
+
                 ]
             }
         });
