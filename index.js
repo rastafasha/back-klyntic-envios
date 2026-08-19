@@ -5,6 +5,7 @@ const cors = require('cors');
 const path = require('path');
 const socketIO = require('socket.io');
 require('./config/recordatorios-cron');
+
 // require('./config/cron-envioswhatsapp');// cuando pague el servidor 
 const { restaurarSesionesDeDoctores } = require('./controllers/consultoriosController');
 // El delay auxiliar para el index
@@ -59,11 +60,11 @@ const corsOptions = {
     // 🛡️ Autoriza explícitamente al navegador a enviar los tokens de Angular
     allowedHeaders: ["Content-Type", "Authorization", "x-token", "Accept", "auth_token"],
 
-    methods: "GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS", 
+    methods: "GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS",
     credentials: true,
-    
+
     // 🚀 CORRECCIÓN CRÍTICA: Cambiamos 204 por 200 para que Render no ignore los Preflights bajo alta carga
-    optionsSuccessStatus: 200 
+    optionsSuccessStatus: 200
 };
 
 // 1. Aplicar a las rutas normales de Express (REST API)
@@ -72,10 +73,16 @@ app.use(cors(corsOptions));
 
 // 2. Aplicar a Socket.io
 const io = socketIO(server, {
-    cors: corsOptions
+    cors: corsOptions,
+    pingTimeout: 60000,   // 🔥 Agrega esto para estabilizar WebSockets en Render
+    pingInterval: 25000   // 🔥 Agrega esto para reemplazar el setInterval viejo
 });
 
+// Exportamos io para el resto de la app
 module.exports.io = io;
+
+// 🔥 LA CLAVE: Cargamos los eventos de los sockets PASÁNDOLE el io ya creado
+require('./socketIO')(io); 
 
 //lectura y parseo del body
 app.use(express.json());
@@ -126,22 +133,24 @@ const startServer = async () => {
         });
 
         // =========================================================================
-        // 🚨 ENCENDIDO DEL PUERTO EN RENDER (Dentro de tu única función startServer)
+        // 🚨 ENCENDIDO DEL PUERTO EN RENDER (Limpio y Optimizado)
         // =========================================================================
-        if (process.env.VERCEL !== '1') {
-            const PORT = process.env.PORT || 3000; // Render usa el puerto 5000 por defecto si no hay variable de entorno
 
-            server.listen(PORT, () => {
-                console.log(`✅ Servidor Klyntic ejecutándose con éxito en puerto: ${PORT}`);
-            });
+        // Render asigna un puerto dinámico. Usamos 10000 como respaldo (puerto estándar de Render).
+        const PORT = process.env.PORT || 10000;
 
-            // ⏳ El seguro de Render: Esperamos 5 segundos a que el hardware se asiente
-            console.log('⏱ Estabilizando entorno... Esperando 5 segundos antes de WhatsApp.');
-            await new Promise(resolve => setTimeout(resolve, 3000));
+        // Escuchamos en '0.0.0.0' para permitir conexiones externas en el contenedor de Render
+        server.listen(PORT, '0.0.0.0', () => {
+            console.log(`✅ Servidor Klyntic ejecutándose con éxito en puerto: ${PORT}`);
 
-            // Disparamos la restauración progresiva de tus médicos (1 por uno cada 8 segundos)
-            await restaurarSesionesDeDoctores();
-        }
+            // Ejecutamos la restauración de médicos en segundo plano.
+            // Al NO usar 'await' aquí, el servidor le avisa de inmediato a Render que ya está "Live".
+            console.log('⏱ Iniciando restauración progresiva de médicos en segundo plano...');
+
+            restaurarSesionesDeDoctores()
+                .then(() => console.log('✅ Todas las sesiones de doctores han sido procesadas.'))
+                .catch(err => console.error('❌ Error al restaurar sesiones de doctores:', err));
+        });
 
         // =========================================================================
         // 🕳️ COMPATIBILIDAD FRONTEND (Al puro final, después de prender el puerto)
