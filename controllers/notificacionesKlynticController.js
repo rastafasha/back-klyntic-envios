@@ -1,6 +1,7 @@
 const { enviarMensajeWhatsApp } = require('../helpers/whatsapp-helper');
 const NotificacionMedica = require('../models/notificacionMedica'); // Tu esquema médico en Mongo
 const Consultorio = require('../models/consultorio');
+const { MessageMedia } = require('whatsapp-web.js');
 
 const colaWhatsApp = [];
 let procesandoCola = false;
@@ -167,7 +168,6 @@ const borrarTodasLasNotificacionesMedicas = async (req, res) => {
 };
 
 
-
 const enviarRecordatoriosMasivos = async (req, res) => {
     try {
         const { recordatorios } = req.body;
@@ -187,43 +187,119 @@ const enviarRecordatoriosMasivos = async (req, res) => {
             const { doctor_id, telefono, mensaje } = item;
             const idDoctorStr = String(doctor_id);
 
-            // 🚀 MEJORA ABSOLUTA: Validamos el estado real al instante desde la memoria RAM global
+            // Validamos el estado real al instante desde la memoria RAM global
             const estadoEnMemoria = global.whatsappStates && global.whatsappStates[idDoctorStr];
             const clienteActivo = global.whatsappClients && global.whatsappClients[idDoctorStr];
 
             if (estadoEnMemoria && estadoEnMemoria.whatsappStatus === 'CONECTADO' && clienteActivo) {
 
-                // Formateo rápido anti-errores antes de enviar
-                let telefonoLimpio = telefono.replace(/\D/g, '');
+                // 🚀 FORMATEO INTERNACIONAL UNIFICADO ANTI-ERRORES
+                let telefonoLimpio = telefono.replace(/\D/g, ''); // Quitamos letras, espacios y símbolos
+                
+                // Si el número empieza con 0 (ej: 04121234567), cambiamos el 0 por el código de Venezuela (58)
                 if (telefonoLimpio.startsWith('0')) {
                     telefonoLimpio = '58' + telefonoLimpio.substring(1);
                 }
 
-                // 🚀 DISPARO REAL DESDE LA INSTANCIA DE MEMORIA
-                const enviado = await enviarMensajeWhatsApp(idDoctorStr, telefonoLimpio, mensaje);
+                // Agregamos el identificador obligatorio de WhatsApp (@c.us) si no lo tiene
+                if (!telefonoLimpio.endsWith('@c.us')) {
+                    telefonoLimpio = `${telefonoLimpio}@c.us`;
+                }
 
-                if (enviado) {
+                try {
+                    // 🚀 DISPARO REAL DIRECTO DESDE LA INSTANCIA DE PUPPETEER EN RAM
+                    await clienteActivo.sendMessage(telefonoLimpio, mensaje);
+                    
                     console.log(`[ÉXITO] Recordatorio enviado al paciente ${telefonoLimpio} desde el canal del Doctor ID: ${idDoctorStr}`);
-                } else {
-                    console.log(`[FALLO] No se pudo entregar el mensaje al número ${telefonoLimpio}.`);
+                } catch (sendError) {
+                    console.error(`[FALLO NATIVO] Error al entregar mensaje en WhatsApp para ${telefonoLimpio}:`, sendError.message);
                 }
 
             } else {
                 console.log(`[IGNORADO] El consultorio ${idDoctorStr} está DESCONECTADO en RAM. No se envía a ${telefono}.`);
             }
 
-            // ⏳ Mantenemos tu excelente pausa protectora anti-spam
+            // ⏳ Tu excelente pausa protectora anti-spam (Asegúrate de tener declarada la función delay arriba)
             console.log(`⏱ Esperando 3.5 segundos antes del siguiente recordatorio...`);
-            await delay(3500);
+            await new Promise(resolve => setTimeout(resolve, 3500)); // Delay inline seguro por si no tienes la función declarada
         }
 
-
     } catch (error) {
-        // Como ya respondimos 200 a Laravel, los errores se quedan exclusivamente en tu consola local
         console.error('❌ Error crítico en el bulk de notificaciones Klyntic:', error);
     }
 };
 
+const enviarNotificacionPaciente = async (req, res) => {
+    try {
+        const { consultorioId, numero, mensaje, urlMedia } = req.body;
+
+        // 1. Validaciones estrictas de los campos obligatorios
+        if (!consultorioId || !numero || !mensaje) {
+            return res.status(400).json({ 
+                ok: false, 
+                msg: 'Faltan parámetros requeridos: consultorioId, numero o mensaje.' 
+            });
+        }
+
+        const idStr = consultorioId.toString();
+
+        // 2. Buscamos el hilo del navegador de ese consultorio en la memoria RAM
+        const client = global.whatsappClients[idStr];
+
+        if (!client) {
+            return res.status(404).json({ 
+                ok: false, 
+                msg: `El WhatsApp del consultorio ${idStr} no está activo o se encuentra desconectado en Render.` 
+            });
+        }
+
+        // 3. Formateamos el número al estándar internacional de WhatsApp (@c.us)
+        // Limpiamos espacios, guiones o signos + que vengan de la base de datos
+        let numeroLimpio = numero.replace(/\D/g, ''); 
+        if (!numeroLimpio.endsWith('@c.us')) {
+            numeroLimpio = `${numeroLimpio}@c.us`;
+        }
+
+        // 4. CASO A: El mensaje incluye un archivo adjunto (PDF, JPG, PNG) desde Supabase/Laravel
+        if (urlMedia) {
+            console.log(`📦 Descargando y empaquetando archivo multimedia: ${urlMedia}`);
+            
+            // La clase MessageMedia descarga el archivo automáticamente desde internet
+            const media = await MessageMedia.fromUrl(urlMedia, { unsafeMime: true });
+            
+            // Enviamos el archivo colocando el mensaje de texto como "pie de página"
+            await client.sendMessage(numeroLimpio, media, { caption: mensaje });
+            
+            return res.status(200).json({ 
+                ok: true, 
+                msg: 'Mensaje multimedia (archivo + texto) enviado con éxito.' 
+            });
+        }
+
+        // 5. CASO B: Envío tradicional de Texto Plano (Recordatorios estándar)
+        await client.sendMessage(numeroLimpio, mensaje);
+        
+        return res.status(200).json({ 
+            ok: true, 
+            msg: 'Mensaje de texto enviado con éxito al paciente.' 
+        });
+
+    } catch (error) {
+        console.error('❌ Error crítico en enviarNotificacionPaciente:', error.message);
+        return res.status(500).json({ 
+            ok: false, 
+            error: error.message 
+        });
+    }
+};
+
+// enviarNotificacionPaciente (La nueva):
+// Para qué sirve: Está diseñada para enviar un solo mensaje individual e inmediato (recibe un único objeto con un solo teléfono). 
+// Además, incluye el soporte para adjuntar archivos multimedia (MessageMedia) como imágenes o PDFs de recetas médicas.
+// Cuándo se usa: Es ideal para acciones instantáneas que hace el médico en tiempo real desde el panel de Angular, 
+// por ejemplo:Al hacer clic en "Enviar receta por WhatsApp" justo al terminar la consulta.
+// Al presionar "Notificar retraso" si el médico va tarde al consultorio.
+// Cuando un paciente se registra en línea y Laravel le envía un texto único de confirmación.
 
 
 
@@ -235,4 +311,5 @@ module.exports = {
     borrarNotificacionMedicaPorId,
     borrarTodasLasNotificacionesMedicas,
     enviarRecordatoriosMasivos,
+    enviarNotificacionPaciente
 };

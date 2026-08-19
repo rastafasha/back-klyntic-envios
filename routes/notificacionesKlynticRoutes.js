@@ -8,7 +8,8 @@ const {
     borrarNotificacionMedicaPorId,
     borrarTodasLasNotificacionesMedicas,
     enviarRecordatoriosMasivos,
-    obtenerporId
+    obtenerporId,
+    enviarNotificacionPaciente
 } = require('../controllers/notificacionesKlynticController'); // Tu controlador médico
 
 const router = Router();
@@ -22,6 +23,7 @@ router.use(validarJWT);
 router.get('/unread-count', obtenerContadorMedico);
 router.post('/bulk', enviarRecordatoriosMasivos);
 router.put('/:id', marcarUnaLeidaMedica);
+router.post('/enviar-notificacion', enviarNotificacionPaciente);
 
 // Opción A: Para que el usuario vea su propio historial (Usa el token req.uid)
 router.get('/historial', validarJWT, obtenerHistorialMedico);
