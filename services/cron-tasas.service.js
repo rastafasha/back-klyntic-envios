@@ -1,48 +1,49 @@
 const axios = require('axios');
-const cron = require('node-cron');
 const mongoose = require('mongoose');
 const Schema = mongoose.Schema;
 
-// Definición exacta de tus modelos
+// Definición de tu modelo Mongoose
 const Tasadollarbcv = mongoose.model('tasadollarbcv', Schema({
     precio_dia: { type: Number, required: true, default: 0 }
 }, { collection: 'tasadollarbcv', timestamps: true }));
 
-
 /**
- * Función que extrae la data oficial del BCV y actualiza MongoDB Atlas
+ * Función que extrae la data oficial y actualiza MongoDB Atlas
  */
 async function sincronizarTasasOficiales() {
     try {
-        console.log('🔄 Consultando endpoints estables de DolarApi...');
+        console.log('🔄 Consultando endpoints estables de DolarApi con bypass de caché...');
 
-        // Lanzamos las peticiones HTTP en paralelo para no colgar la red de Movilnet
-        const [resDolar] = await Promise.all([
-            axios.get('https://ve.dolarapi.com/v1/dolares/oficial')
-        ]);
+        // 🚀 LA CLAVE: Rompemos el caché de red añadiendo un parámetro aleatorio de tiempo
+        const timestamp = Date.now();
+        const url = `https://dolarapi.com{timestamp}`;
 
-// Extracción segura y redondeo estándar a 2 decimales (USD: 582.69 | EUR: 671.42)
-        const valorDolar = parseFloat(
-            (resDolar.data.promedio || resDolar.data.oficial || resDolar.data.precio).toFixed(2)
-        );
+        const resDolar = await axios.get(url, {
+            headers: {
+                'Cache-Control': 'no-cache, no-store, must-revalidate',
+                'Pragma': 'no-cache',
+                'Expires': '0'
+            }
+        });
+
+        // Extraemos y redondeamos el valor de la API (Soporta múltiples estructuras)
+        const data = resDolar.data;
+        const valorDolar = parseFloat((data.promedio || data.oficial || data.precio).toFixed(2));
         
-
-        // Auditoría previa a la escritura en base de datos
-        console.log(`[DolarApi Verificado] USD: ${valorDolar} VES`);
+        console.log(`[DolarApi Verificado] USD extraído: ${valorDolar} VES`);
 
         // Validación estricta anti-corrupción de datos
-        if (isNaN(valorDolar)  || valorDolar <= 0 ) {
+        if (isNaN(valorDolar) || valorDolar <= 0) {
             throw new Error('La API devolvió un formato no numérico o valores inválidos.');
         }
 
-        // 2. Actualización del CRUD de Dólar (Sobrescribe o crea el registro único)
+        // Actualización o inserción en MongoDB Atlas
         await Tasadollarbcv.updateOne({}, { 
             $set: { precio_dia: valorDolar } 
         }, { upsert: true });
 
-
-        return { usd: valorDolar};
-
+        console.log(`✅ MongoDB Atlas actualizado exitosamente a: ${valorDolar} VES`);
+        return { usd: valorDolar };
 
     } catch (error) {
         console.error('❌ Error en el sync automático de tasas:', error.message);
@@ -50,15 +51,5 @@ async function sincronizarTasasOficiales() {
     }
 }
 
-/**
- * TAREA PROGRAMADA: De Lunes a Viernes a las 5:00 PM (Hora de Venezuela)
- */
-cron.schedule('0 17 * * 1-5', async () => {
-    console.log('⏰ Ejecutando actualización cambiaria automática de la tarde...');
-    await sincronizarTasasOficiales();
-}, {
-    scheduled: true,
-    timezone: "America/Caracas"
-});
-
+// Exportamos la función limpia para consumirla desde el router de Express
 module.exports = { sincronizarTasasOficiales };
