@@ -5,7 +5,8 @@ const ConsultorioSchema = new mongoose.Schema({
     _id: { type: String, required: true }, 
     whatsappStatus: { 
         type: String, 
-        enum: ['CONECTADO', 'DESCONECTADO', 'ESPERANDO_QR'], 
+        // 🚀 CORRECCIÓN: Agregamos INICIALIZANDO y ERROR para soportar todo el ciclo de vida del bot
+        enum: ['INICIALIZANDO', 'ESPERANDO_QR', 'CONECTADO', 'DESCONECTADO', 'ERROR'], 
         default: 'DESCONECTADO' 
     },
     whatsappQR: { type: String, default: '' },

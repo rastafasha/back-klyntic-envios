@@ -1,6 +1,9 @@
-const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
+// const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');//modo pago para guardar RemoteAuth
+const { Client, RemoteAuth, MessageMedia } = require('whatsapp-web.js');
+const { MongoStore } = require('wwebjs-mongo'); // 🚀 CORRECCIÓN 1: Importación obligatoria
 const Consultorio = require('../models/consultorio');
 const QRCode = require('qrcode');
+const mongoose = require('mongoose');
 
 global.whatsappClients = global.whatsappClients || {};
 global.inicializandoClientes = global.inicializandoClientes || {};
@@ -17,7 +20,6 @@ const crearClienteWhatsApp = async (consultorioId) => {
 
     global.inicializandoClientes[idStr] = true;
 
-    global.whatsappStates = global.whatsappStates || {};
     global.whatsappStates[idStr] = {
         whatsappStatus: 'INICIALIZANDO',
         whatsappQR: ''
@@ -26,13 +28,24 @@ const crearClienteWhatsApp = async (consultorioId) => {
     console.log(`🤖 [KLYNTIC] Iniciando motor Puppeteer para Consultorio ID: ${idStr}`);
 
     try {
+        // Inicializamos el almacén de sesiones de MongoDB
+        const store = new MongoStore({ mongoose: mongoose });
+
         const isProduction = process.env.NODE_ENV === 'production';
+       
 
         const client = new Client({
-            authStrategy: new LocalAuth({
-                clientId: `consultorio_${idStr}`,
-                dataPath: './.wwebjs_auth'
+            
+            //Inicializamos el cliente con la estrategia Remota
+            authStrategy: new RemoteAuth({
+                store: store,
+                backupSyncIntervalMs: 60000,
+                clientId: `session-${idStr}` // 🚀 CORRECCIÓN 2: ID dinámico para separar los consultorios en Atlas
             }),
+            // authStrategy: new LocalAuth({
+            //     clientId: `consultorio_${idStr}`,
+            //     dataPath: './.wwebjs_auth'
+            // }),
             // 🚀 CORRECCIÓN 1: Eliminamos webVersionCache conflictivo. 
             // Dejamos que la librería use su propia estrategia nativa actualizada.
             puppeteer: {
@@ -43,13 +56,14 @@ const crearClienteWhatsApp = async (consultorioId) => {
                 args: [
                     '--no-sandbox',
                     '--disable-setuid-sandbox',
-                    '--disable-dev-shm-usage',
+                    '--disable-dev-shm-usage', // Evita que se quede sin memoria RAM en Render
                     '--disable-gpu',
                     '--no-first-run',
                     '--no-zygote',
                     '--disable-extensions',
                     '--disable-blink-features=AutomationControlled',
-                    '--user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
+                    // ENGAÑA A WHATSAPP: Simula ser un Google Chrome real de escritorio
+                    '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
                     // 🚀 CORRECCIÓN 2: Subimos a 512MB. Menos de esto crashea el lector QR de WhatsApp.
                     '--js-flags="--max-old-space-size=512"',
                     '--disable-speech-api',
@@ -81,6 +95,9 @@ const crearClienteWhatsApp = async (consultorioId) => {
                     width: 300
                 });
 
+                // Verificación de existencia del objeto global
+                if (!global.whatsappStates[idStr]) global.whatsappStates[idStr] = {};
+
                 global.whatsappStates[idStr].whatsappStatus = 'ESPERANDO_QR';
                 global.whatsappStates[idStr].whatsappQR = qrBase64;
 
@@ -89,11 +106,10 @@ const crearClienteWhatsApp = async (consultorioId) => {
                     whatsappQR: qrBase64
                 });
 
-                // 🚀 CRÍTICO: Envía el evento por Sockets al frontend de Angular
-                // Asegúrate de usar la instancia global de socket.io de tu servidor (ej. global.io)
+                // 🚀 Envía el evento por Sockets al frontend de Angular
                 if (global.io) {
                     global.io.emit('whatsapp-status-changed', {
-                        doctorId: idStr, // Coincide con data.doctorId en Angular
+                        doctorId: idStr,
                         whatsappStatus: 'ESPERANDO_QR',
                         whatsappQR: qrBase64
                     });
@@ -110,9 +126,9 @@ const crearClienteWhatsApp = async (consultorioId) => {
         // =========================================================================
         client.on('ready', async () => {
             console.log(`🚀 ¡WhatsApp conectado para el consultorio: ${idStr}!`);
-            delete global.inicializandoClientes[idStr];
-
+            if (global.inicializandoClientes) delete global.inicializandoClientes[idStr];
             global.whatsappStates[idStr] = { whatsappStatus: 'CONECTADO', whatsappQR: '' };
+            global.whatsappClients[idStr] = client; // Se guarda la instancia una vez operativa
 
             try {
                 await Consultorio.findByIdAndUpdate(consultorioId, {
@@ -121,7 +137,6 @@ const crearClienteWhatsApp = async (consultorioId) => {
                     whatsappConnectedAt: new Date()
                 });
 
-                // 🚀 CRÍTICO: Notifica a Angular que el médico ya escaneó con éxito
                 if (global.io) {
                     global.io.emit('whatsapp-status-changed', {
                         doctorId: idStr,
@@ -133,6 +148,12 @@ const crearClienteWhatsApp = async (consultorioId) => {
                 console.error('Error actualizando BD en ready:', dbErr.message);
             }
         });
+        // =========================================================================
+        // ❌ EVENTO REMOTE SESSION SAVED (Garantiza persistencia en Atlas)
+        // =========================================================================
+        client.on('remote_session_saved', () => {
+            console.log(`💾 Sesión de WhatsApp guardada con éxito en Atlas para: ${idStr}`);
+        });
 
         // =========================================================================
         // ❌ EVENTO DISCONNECTED
@@ -140,7 +161,7 @@ const crearClienteWhatsApp = async (consultorioId) => {
         client.on('disconnected', async (reason) => {
             console.log(`❌ WhatsApp desconectado en consultorio ${idStr}. Razón: ${reason}`);
             delete global.whatsappClients[idStr];
-            delete global.inicializandoClientes[idStr];
+            if (global.inicializandoClientes) delete global.inicializandoClientes[idStr];
             if (global.whatsappStates[idStr]) delete global.whatsappStates[idStr];
 
             try {
@@ -149,46 +170,40 @@ const crearClienteWhatsApp = async (consultorioId) => {
                     whatsappQR: '',
                     whatsappConnectedAt: null
                 });
+
+                if (global.io) {
+                    global.io.emit('whatsapp-status-changed', {
+                        doctorId: idStr,
+                        whatsappStatus: 'DESCONECTADO',
+                        whatsappQR: ''
+                    });
+                }
             } catch (dbErr) {
                 console.error('Error al actualizar BD en disconnected:', dbErr.message);
             }
         });
+        
 
         // =========================================================================
-        // 🏁 INICIALIZACIÓN
+        // 🏁 INICIALIZACIÓN (Eventos declarados ANTES de inicializar)
         // =========================================================================
-        console.log(`⏳ Lanzando inicialización de Puppeteer en segundo plano para ${idStr}...`);
-
-        client.initialize().then(() => {
-            global.whatsappClients[idStr] = client;
-
-            // 🚀 CORRECCIÓN 3: El interceptor de tráfico multimedia SOLO se activa 
-            // cuando el cliente ya se encuentra 'READY' (Conectado), no antes.
-            client.on('ready', () => {
-                setTimeout(async () => {
-                    try {
-                        const page = client.pupPage;
-                        if (page) {
-                            await page.setRequestInterception(true);
-                            page.on('request', (request) => {
-                                const resourceType = request.resourceType();
-                                // Bloqueamos elementos pesados una vez ya iniciada la sesión
-                                if (['image', 'media', 'font'].includes(resourceType)) {
-                                    request.abort();
-                                } else {
-                                    request.continue();
-                                }
-                            });
-                        }
-                    } catch (e) {
-                        console.error('Error al setear interceptor post-ready:', e.message);
-                    }
-                }, 5000);
+        try {
+            console.log(`⏳ Lanzando inicialización de Puppeteer en segundo plano para ${idStr}...`);
+            
+            if (!global.inicializandoClientes) global.inicializandoClientes = {};
+            global.inicializandoClientes[idStr] = true;
+            
+            // 🚀 ESTA ES LA ÚNICA INICIALIZACIÓN QUE DEBE QUEDAR
+            client.initialize().catch(err => {
+                console.error(`Error interno en initialize de cliente ${idStr}:`, err.message);
+                global.whatsappStates[idStr] = { whatsappStatus: 'ERROR', whatsappQR: '' };
             });
-        }).catch(err => {
-            console.error(`Error al inicializar cliente ${idStr}:`, err.message);
+
+        } catch (error) {
+            console.error(`Error crítico creando cliente ${idStr}:`, error.message);
             global.whatsappStates[idStr] = { whatsappStatus: 'ERROR', whatsappQR: '' };
-        });
+        }
+
 
     } catch (error) {
         console.error(`Error crítico creando cliente ${idStr}:`, error.message);
