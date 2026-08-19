@@ -7,7 +7,7 @@
     "start:dev": "nodemon index.js",
     "start:local": "node index.js",
     "start": "node --optimize_for_size --max_old_space_size=180 index.js",
-    "postinstall": "npx puppeteer browsers install chrome"
+    "postinstall": "npm install puppeteer && npx puppeteer browsers install chrome --platform linux"
   },
   "keywords": [],
   "author": "",
