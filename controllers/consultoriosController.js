@@ -3,6 +3,7 @@ const Consultorio = require('../models/consultorio');
 const { crearClienteWhatsApp, enviarMensajeWhatsApp } = require('../helpers/whatsapp-helper');
 
 // 🚀 1. Arranca el proceso de conexión desde Angular
+// 🚀 1. Arranca el proceso de conexión desde Angular
 const conectarWhatsappConsultorio = async (req, res) => {
     try {
         const localId = String(req.params.id);
@@ -22,35 +23,50 @@ const conectarWhatsappConsultorio = async (req, res) => {
             return res.status(200).json({ _id: localId, whatsappStatus: 'INICIALIZANDO', msg: 'Instancia encendiendo Chromium. Espere el QR.' });
         }
 
-        // =========================================================================
-        // 2. 🚀 UPSERT EN MONGO: Seteamos 'INICIALIZANDO' creando el registro si es nuevo
-        // =========================================================================
+        // Bloqueamos la RAM de inmediato para evitar que otro clic simultáneo dispare otra instancia
+        global.inicializandoClientes[localId] = true;
         global.whatsappStates[localId] = {
             whatsappStatus: 'INICIALIZANDO',
             whatsappQR: ''
         };
 
-        // { upsert: true } es la clave: si no existe el ID de MySQL en Mongo, lo crea en este instante
-        await Consultorio.findByIdAndUpdate(
+        // =========================================================================
+        // 2. 🚀 RESPUESTA INMEDIATA AL FRONTEND: Rompe el estado "Cargando" en Angular
+        // =========================================================================
+        // Usamos código 202 (Aceptado para procesamiento en segundo plano)
+        res.status(202).json({
+            _id: localId,
+            whatsappStatus: 'INICIALIZANDO',
+            msg: 'Iniciando el motor de WhatsApp en el microservicio en segundo plano...'
+        });
+
+        // =========================================================================
+        // 3. ⏳ PROCESAMIENTO EN SEGUNDO PLANO (Post-respuesta)
+        // =========================================================================
+        // Ejecutamos el Upsert en Mongo de forma asíncrona sin bloquear al usuario
+        Consultorio.findByIdAndUpdate(
             localId,
             { whatsappStatus: 'INICIALIZANDO', whatsappQR: '' },
             { upsert: true, new: true, setDefaultsOnInsert: true }
-        );
-
-        // 3. Invocamos al helper de Puppeteer en segundo plano
-        crearClienteWhatsApp(localId);
-
-        return res.status(200).json({
-            _id: localId,
-            whatsappStatus: 'INICIALIZANDO',
-            msg: 'Iniciando el motor de WhatsApp en el microservicio...'
+        ).then(() => {
+            console.log(`💾 MongoDB Atlas: Registro seteado en 'INICIALIZANDO' para ID: ${localId}`);
+            // 4. Invocamos al helper de Puppeteer una vez preparado el registro
+            crearClienteWhatsApp(localId);
+        }).catch(dbErr => {
+            console.error(`❌ Error haciendo upsert inicial en Mongo para ${localId}:`, dbErr.message);
+            // Si la base de datos falla, igual intentamos encender el servicio
+            crearClienteWhatsApp(localId);
         });
 
     } catch (error) {
-        console.error('❌ Error en conectarWhatsappConsultorio:', error.message);
-        return res.status(500).json({ error: error.message });
+        console.error('❌ Error crítico en conectarWhatsappConsultorio:', error.message);
+        // Validamos si por alguna razón ya se enviaron cabeceras para evitar crasheos por doble respuesta
+        if (!res.headersSent) {
+            return res.status(500).json({ error: error.message });
+        }
     }
 };
+
 
 
 // 🔒 2. El Polling repetitivo de Angular para leer el QR
@@ -61,8 +77,7 @@ const statusWhatsappConsultorio = async (req, res) => {
 
         global.whatsappStates = global.whatsappStates || {};
 
-        console.log(`🔍 [GET STATUS] Evaluando ID: ${idLimpio} en la memoria RAM...`);
-        // 1. Revisamos la memoria RAM del servidor
+        // 1. ⚡ RESPUESTA ULTRA-RÁPIDA DESDE MEMORIA RAM
         if (global.whatsappStates[idLimpio]) {
             const estadoEnMemoria = global.whatsappStates[idLimpio];
             return res.status(200).json({
@@ -72,20 +87,30 @@ const statusWhatsappConsultorio = async (req, res) => {
             });
         }
 
-        // 2. Fallback: Si no está en RAM, buscamos en MongoDB haciendo un Upsert pasivo
+        // 2. 🛡️ FALLBACK DE LECTURA LIMPIA (Evita saturar Atlas con Upserts repetitivos)
         try {
-            // Si el médico es nuevo en el ecosistema, le creamos su estado base en Mongo
-            const consultorio = await Consultorio.findOneAndUpdate(
-                { _id: idLimpio },
-                { $setOnInsert: { whatsappStatus: 'DESCONECTADO', whatsappQR: '' } },
-                { upsert: true, new: true, setDefaultsOnInsert: true }
-            );
+            console.log(`🔍 [GET STATUS] Buscando respaldo pasivo en MongoDB para ID: ${idLimpio}...`);
+            
+            // Cambiamos findOneAndUpdate por findById (Lectura pura)
+            const consultorio = await Consultorio.findById(idLimpio);
 
+            // Si existe en la BD, respondemos con sus datos reales
+            if (consultorio) {
+                return res.status(200).json({
+                    _id: idLimpio,
+                    whatsappStatus: consultorio.whatsappStatus,
+                    whatsappQR: consultorio.whatsappQR
+                });
+            }
+
+            // Si no existe ni en RAM ni en BD, respondemos con el estado base SIN guardar nada aún
+            // (El registro real se creará únicamente cuando el usuario presione "Conectar")
             return res.status(200).json({
                 _id: idLimpio,
-                whatsappStatus: consultorio.whatsappStatus,
-                whatsappQR: consultorio.whatsappQR
+                whatsappStatus: 'DESCONECTADO',
+                whatsappQR: ''
             });
+
         } catch (dbError) {
             console.error('❌ Error en Fallback BD del GET:', dbError.message);
             return res.status(500).json({ error: dbError.message });
@@ -96,6 +121,7 @@ const statusWhatsappConsultorio = async (req, res) => {
         return res.status(500).json({ error: error.message });
     }
 };
+
 
 
 // 📡 3. Sincronización Servidor a Servidor (Cuando creas un médico en Laravel)
