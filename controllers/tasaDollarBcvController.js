@@ -21,47 +21,66 @@ const getUltimatasa = async(req, res) => {
 };
 
 
-
 const crearTasa = async(req, res) => {
     const uid = req.uid; // ID del usuario autenticado
 
     try {
-        // 1. Creamos la tasa vinculada al usuario
+        // 1. Extraemos el precio y limpiamos la coma decimal de forma estricta
+        let precioEntrante = req.body.precio_dia || req.body.tasa;
+
+        if (typeof precioEntrante === 'string') {
+            precioEntrante = precioEntrante.replace(',', '.');
+        }
+
+        const valorNumerico = parseFloat(Number(precioEntrante).toFixed(2));
+
+        // Validación matemática de seguridad
+        if (isNaN(valorNumerico) || valorNumerico <= 0) {
+            return res.status(400).json({
+                ok: false,
+                msg: 'El formato de la tasa no es un número válido (ej: 775.33)'
+            });
+        }
+
+        // 2. Creamos la tasa con el valor numérico ya sanitizado
         const tasa = new Tasadollarbcv({
             usuario: uid,
-            ...req.body
+            precio_dia: valorNumerico // 🚀 Fijamos el valor real formateado aquí
         });
 
         const tasaDB = await tasa.save();
 
-        // 2. ACTUALIZACIÓN CRUCIAL: Agregamos el ID del nueva tasa al array del Perfil
-        const tasaActualizado = await Tasadollarbcv.findOneAndUpdate(
+        // 3. ACTUALIZACIÓN CRUCIAL: Agregamos el ID de la tasa al PERFIL o USUARIO
+        // ⚠️ CORRECCIÓN: Cambié 'Tasadollarbcv.findOneAndUpdate' por tu modelo real de Perfil/Usuario (ej: Perfil)
+        // Si tu modelo de perfil se llama 'Perfil', asegúrate de importarlo arriba.
+        const perfilActualizado = await Perfil.findOneAndUpdate(
             { usuario: uid }, 
-            { $push: { tasa: tasaDB._id }, haveTasa: true },
+            { $push: { tasas: tasaDB._id }, haveTasa: true }, // Asignamos la relación correctamente
             { new: true }
         );
 
-        if (!tasaActualizado) {
+        if (!perfilActualizado) {
             return res.status(404).json({
                 ok: false,
-                msg: 'No se encontró un tasa para este usuario'
+                msg: 'No se encontró el perfil de configuración para este usuario'
             });
         }
 
         res.json({
             ok: true,
             tasa: tasaDB,
-            perfil: 'Tasadollarbcv actualizado con la nueva tasa'
+            perfil: 'Perfil médico actualizado con la nueva tasa cambiaria'
         });
 
     } catch (error) {
         console.log(error);
         res.status(500).json({
             ok: false,
-            msg: 'Error al crear el local, contacte al admin'
+            msg: 'Error al crear la tasa, contacte al admin'
         });
     }
 };
+
 
 const actualizarTasa = async(req, res) => {
     const id = req.params.id; // ID de la Tasa

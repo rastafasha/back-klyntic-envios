@@ -3,28 +3,25 @@ const router = Router();
 const { sincronizarTasasOficiales } = require('../services/cron-tasas.service');
 
 // =========================================================================
-// 🔄 1. ENDPOINT AUTOMÁTICO PARA CRON-JOB.ORG (Método GET Obligatorio)
+// ⏰ 1. ENDPOINT AUTOMÁTICO PARA CRON-JOB.ORG (Método GET Obligatorio)
 // =========================================================================
 router.get('/tasks/sync-tasa-bcv', async (req, res) => {
     try {
-        console.log('⏰ [CRON-JOB.ORG] Ejecutando gatillo de actualización cambiaria...');
+        console.log('⏰ [CRON-JOB.ORG] Petición externa recibida para actualizar tasa...');
         
-        // Ejecuta la lógica asíncrona contra DolarApi con bypass de caché
+        // Ejecuta el servicio que limpia la coma y consulta la API
         const tasa = await sincronizarTasasOficiales();
 
         if (tasa) {
-            // 🚀 NOTIFICACIÓN SOCKET: Avisa a todas las pantallas de Angular el nuevo precio del día
+            // Notificamos a Angular por Sockets en tiempo real si el socket está activo
             if (global.io) {
                 global.io.emit('tasa-bcv-actualizada', { tasa });
-                console.log(`📡 [SOCKET] Tasa emitida a Angular: ${tasa.usd} VES`);
             }
-
-            return res.status(200).json({ ok: true, msg: 'Tasa sincronizada por cronjob con éxito', tasa });
+            return res.status(200).json({ ok: true, msg: 'Tasa sincronizada por cronjob', tasa });
         } else {
-            return res.status(500).json({ ok: false, msg: 'La sincronización automática devolvió un valor nulo o falló.' });
+            return res.status(500).json({ ok: false, msg: 'Fallo en la sincronización automática.' });
         }
     } catch (error) {
-        console.error('❌ Error en GET /tasks/sync-tasa-bcv:', error.message);
         return res.status(500).json({ ok: false, error: error.message });
     }
 });

@@ -10,46 +10,43 @@ const Tasadollarbcv = mongoose.model('tasadollarbcv', Schema({
 /**
  * Función que extrae la data oficial y actualiza MongoDB Atlas
  */
+
 async function sincronizarTasasOficiales() {
     try {
-        console.log('🔄 Consultando endpoints estables de DolarApi con bypass de caché...');
-
-        // 🚀 LA CLAVE: Rompemos el caché de red añadiendo un parámetro aleatorio de tiempo
         const timestamp = Date.now();
         const url = `https://dolarapi.com{timestamp}`;
 
         const resDolar = await axios.get(url, {
-            headers: {
-                'Cache-Control': 'no-cache, no-store, must-revalidate',
-                'Pragma': 'no-cache',
-                'Expires': '0'
-            }
+            headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' },
+            timeout: 7000
         });
 
-        // Extraemos y redondeamos el valor de la API (Soporta múltiples estructuras)
         const data = resDolar.data;
-        const valorDolar = parseFloat((data.promedio || data.oficial || data.precio).toFixed(2));
-        
-        console.log(`[DolarApi Verificado] USD extraído: ${valorDolar} VES`);
+        let precioCrudo = data.oficial || data.promedio || data.precio;
 
-        // Validación estricta anti-corrupción de datos
-        if (isNaN(valorDolar) || valorDolar <= 0) {
-            throw new Error('La API devolvió un formato no numérico o valores inválidos.');
+        // 🚀 SANITIZACIÓN CRÍTICA: Reemplaza comas por puntos si la API manda un String
+        if (typeof precioCrudo === 'string') {
+            precioCrudo = precioCrudo.replace(',', '.');
         }
 
-        // Actualización o inserción en MongoDB Atlas
+        const valorNumerico = parseFloat(Number(precioCrudo).toFixed(2));
+
+        if (isNaN(valorNumerico) || valorNumerico <= 0) {
+            throw new Error('El valor extraído no es un número válido.');
+        }
+
+        // Guardamos o actualizamos el registro único en Atlas
         await Tasadollarbcv.updateOne({}, { 
-            $set: { precio_dia: valorDolar } 
+            $set: { precio_dia: valorNumerico } 
         }, { upsert: true });
 
-        console.log(`✅ MongoDB Atlas actualizado exitosamente a: ${valorDolar} VES`);
-        return { usd: valorDolar };
+        console.log(`✅ [BCV SYNC] Tasa guardada con éxito en Atlas: ${valorNumerico} VES`);
+        return { usd: valorNumerico };
 
     } catch (error) {
-        console.error('❌ Error en el sync automático de tasas:', error.message);
+        console.error('❌ Error en el sync de tasas:', error.message);
         return null;
     }
 }
-
 // Exportamos la función limpia para consumirla desde el router de Express
 module.exports = { sincronizarTasasOficiales };
