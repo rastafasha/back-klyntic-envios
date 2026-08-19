@@ -82,7 +82,8 @@ const io = socketIO(server, {
 module.exports.io = io;
 
 // 🔥 LA CLAVE: Cargamos los eventos de los sockets PASÁNDOLE el io ya creado
-require('./socketIO')(io); 
+require('./sockets/socket')(io);
+
 
 //lectura y parseo del body
 app.use(express.json());
