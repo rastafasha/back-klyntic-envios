@@ -32,10 +32,10 @@ const crearClienteWhatsApp = async (consultorioId) => {
         const store = new MongoStore({ mongoose: mongoose });
 
         const isProduction = process.env.NODE_ENV === 'production';
-       
+
 
         const client = new Client({
-            
+
             //Inicializamos el cliente con la estrategia Remota
             authStrategy: new RemoteAuth({
                 store: store,
@@ -64,8 +64,10 @@ const crearClienteWhatsApp = async (consultorioId) => {
                     '--disable-blink-features=AutomationControlled',
                     // ENGAÑA A WHATSAPP: Simula ser un Google Chrome real de escritorio
                     '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
-                    // 🚀 CORRECCIÓN 2: Subimos a 512MB. Menos de esto crashea el lector QR de WhatsApp.
-                    '--js-flags="--max-old-space-size=512"',
+
+                    // 🚀 CORRECCIÓN SINTAXIS Y LÍMITE: Bajamos a 256MB sin comillas para no asfixiar a Node.js en Render
+                    '--js-flags=--max-old-space-size=256',
+
                     '--disable-speech-api',
                     '--disable-background-networking',
                     '--disable-background-timer-throttling',
@@ -182,17 +184,17 @@ const crearClienteWhatsApp = async (consultorioId) => {
                 console.error('Error al actualizar BD en disconnected:', dbErr.message);
             }
         });
-        
+
 
         // =========================================================================
         // 🏁 INICIALIZACIÓN (Eventos declarados ANTES de inicializar)
         // =========================================================================
         try {
             console.log(`⏳ Lanzando inicialización de Puppeteer en segundo plano para ${idStr}...`);
-            
+
             if (!global.inicializandoClientes) global.inicializandoClientes = {};
             global.inicializandoClientes[idStr] = true;
-            
+
             // 🚀 ESTA ES LA ÚNICA INICIALIZACIÓN QUE DEBE QUEDAR
             client.initialize().catch(err => {
                 console.error(`Error interno en initialize de cliente ${idStr}:`, err.message);
