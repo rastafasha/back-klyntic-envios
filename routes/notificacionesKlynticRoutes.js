@@ -18,10 +18,10 @@ const router = Router();
 router.post('/webhook-recordatorio', recibirAlertaDesdeLaravel);
 
 // 2. Proteger las rutas de la interfaz de Angular con tu middleware existente
+router.post('/bulk', enviarRecordatoriosMasivos);
 router.use(validarJWT);
 
 router.get('/unread-count', obtenerContadorMedico);
-router.post('/bulk', enviarRecordatoriosMasivos);
 router.put('/:id', marcarUnaLeidaMedica);
 router.post('/enviar-notificacion', enviarNotificacionPaciente);
 
