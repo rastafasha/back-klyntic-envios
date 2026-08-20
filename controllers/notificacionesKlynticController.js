@@ -2,7 +2,7 @@ const { enviarMensajeWhatsApp } = require('../helpers/whatsapp-helper');
 const NotificacionMedica = require('../models/notificacionMedica'); // Tu esquema médico en Mongo
 const Consultorio = require('../models/consultorio');
 const { MessageMedia } = require('whatsapp-web.js');
-const {crearClienteWhatsApp} = require('./consultoriosController');
+const { crearClienteWhatsApp } = require('../helpers/whatsapp-helper');
 const colaWhatsApp = [];
 let procesandoCola = false;
 
@@ -189,40 +189,64 @@ const enviarRecordatoriosMasivos = async (req, res) => {
 
             let clienteActivo = global.whatsappClients && global.whatsappClients[idDoctorStr];
             let estadoEnMemoria = global.whatsappStates && global.whatsappStates[idDoctorStr];
-
             // =========================================================================
-            // 🚀 AUTO-DESPERTAR CLOUD: Si no está en RAM, lo levantamos desde Atlas
+            // 🚀 AUTO-DESPERTAR CLOUD INTELIGENTE (Dentro del bucle de enviarRecordatoriosMasivos)
             // =========================================================================
             if (!clienteActivo) {
                 console.log(`🔍 [BULK AUTO-REVIVE] Consultorio ${idDoctorStr} no está en RAM. Buscando en MongoDB Atlas...`);
-                
-                // Buscamos el consultorio en tu colección de Mongoose
+
                 const consultorioDB = await Consultorio.findById(idDoctorStr);
 
-                // Si en la base de datos ya está en CONECTADO, forzamos su encendido automático
                 if (consultorioDB && consultorioDB.whatsappStatus === 'CONECTADO') {
-                    console.log(`🤖 [BULK AUTO-REVIVE] Sesión activa en Atlas para ID: ${idDoctorStr}. Levantando Puppeteer...`);
-                    
-                    // Ejecutamos tu función helper para meter el cliente en la RAM
-                    // Quitamos el await de aquí si crearClienteWhatsApp no retorna una promesa, o la llamamos directamente:
+                    console.log(`🤖 [BULK AUTO-REVIVE] Sesión activa en Atlas. Levantando Puppeteer de forma segura...`);
+
+                    // 🚀 Ejecutamos el encendido nativo asíncrono
                     crearClienteWhatsApp(idDoctorStr);
-                    
-                    // ⏳ LE DAMOS 15 SEGUNDOS A RENDER PARA QUE DESCARGUE LA SESIÓN DE ATLAS Y ABRA CHROMIUM
-                    console.log(`⏳ Esperando 15 segundos críticos de sincronización inicial en Render...`);
-                    await new Promise(resolve => setTimeout(resolve, 15000));
-                    
-                    // Volvemos a jalar las variables recién creadas en la RAM global
+
+                    // 🚀 ESPERA DINÁMICA: Monitoreamos la RAM hasta que pase de INICIALIZANDO a CONECTADO
+                    console.log(`⏳ Esperando la sincronización de Puppeteer en el entorno de Render...`);
+
+                    await new Promise((resolve) => {
+                        let intentosMaximos = 12; // 12 intentos * 5 segundos = Hasta 60 segundos de margen máximo
+                        let contador = 0;
+
+                        const verificarEstado = setInterval(() => {
+                            contador++;
+
+                            // Jalamas las variables globales actualizadas segundo a segundo por crearClienteWhatsApp
+                            const clienteListo = global.whatsappClients && global.whatsappClients[idDoctorStr];
+                            const estadoListo = global.whatsappStates && global.whatsappStates[idDoctorStr]?.whatsappStatus === 'CONECTADO';
+
+                            if (clienteListo && estadoListo) {
+                                console.log(`✅ [BULK AUTO-REVIVE] ¡Instancia operativa y en estado READY en el segundo ${contador * 5}!`);
+                                clearInterval(verificarEstado);
+                                resolve(true); // Rompe la promesa con éxito y continúa el envío
+                            } else if (contador >= intentosMaximos) {
+                                console.log(`❌ [BULK AUTO-REVIVE] Tiempo de espera límite alcanzado (60s). Chromium no respondió.`);
+                                clearInterval(verificarEstado);
+                                resolve(false); // Rompe la promesa por timeout
+                            } else {
+                                // Log informativo para saber en qué estado se encuentra atrapado Puppeteer
+                                const estadoActual = global.whatsappStates && global.whatsappStates[idDoctorStr]?.whatsappStatus;
+                                console.log(`⏳ [${contador}/12] Puppeteer se encuentra en estado: [${estadoActual || 'DESCONOCIDO'}] (${contador * 5}s)...`);
+                            }
+                        }, 5000); // Revisa la RAM cada 5 segundos
+                    });
+
+                    // Volvemos a jalar las referencias globales recién creadas y listas para disparar el mensaje
                     clienteActivo = global.whatsappClients[idDoctorStr];
                     estadoEnMemoria = global.whatsappStates[idDoctorStr];
                 }
             }
+
+
 
             // =========================================================================
             // ⚡ DISPARO SEGURO CON LA INSTANCIA YA RECUPERADA
             // =========================================================================
             // Evaluamos si logramos levantar la sesión (o si ya estaba lista)
             if (clienteActivo) {
-                
+
                 let telefonoLimpio = telefono.replace(/\D/g, '');
                 if (telefonoLimpio.startsWith('0')) {
                     telefonoLimpio = '58' + telefonoLimpio.substring(1);
