@@ -43,18 +43,14 @@ const crearClienteWhatsApp = async (consultorioId) => {
                 clientId: `session-${idStr}` // 🚀 CORRECCIÓN 2: ID dinámico para separar los consultorios en Atlas
             }),
             // 🚀 SOLUCIÓN AL BLOQUEO DEL TELÉFONO: Forzar la última firma web validada de WhatsApp
-                // webVersionCache: {
-                //     type: 'remote',
-                //     remotePath: 'https://githubusercontent.com'
-                // },
-                // 🚀 ALTERNATIVA: Obliga al bot a usar su propio motor local instalado
-        webVersionCache: {
-            type: 'local'
-        },
-            // authStrategy: new LocalAuth({
-            //     clientId: `consultorio_${idStr}`,
-            //     dataPath: './.wwebjs_auth'
-            // }),
+            // webVersionCache: {
+            //     type: 'remote',
+            //     remotePath: 'https://githubusercontent.com'
+            // },
+            // 🚀 ALTERNATIVA: Obliga al bot a usar su propio motor local instalado
+            webVersionCache: {
+                type: 'local'
+            },
             // 🚀 CORRECCIÓN 1: Eliminamos webVersionCache conflictivo. 
             // Dejamos que la librería use su propia estrategia nativa actualizada.
             puppeteer: {
@@ -95,6 +91,25 @@ const crearClienteWhatsApp = async (consultorioId) => {
                     '--disable-features=OptimizationHints,OptimizationHintsFetching,Translate,IntensiveWakeUpThrottling'
 
                 ]
+            }
+        });
+        // 🚀 OPTIMIZACIÓN EXTREMA DE RAM: Interceptamos la página de Puppeteer antes de que cargue WhatsApp
+        client.on('pup_page_created', async (page) => {
+            try {
+                await page.setRequestInterception(true);
+
+                page.on('request', (request) => {
+                    const resourceType = request.resourceType();
+
+                    // Bloqueamos imágenes, estilos, fuentes, videos y otros recursos innecesarios
+                    if (['image', 'stylesheet', 'font', 'media', 'other'].includes(resourceType)) {
+                        request.abort();
+                    } else {
+                        request.continue();
+                    }
+                });
+            } catch (error) {
+                console.error("Error al configurar el interceptor de RAM:", error);
             }
         });
 
@@ -143,7 +158,7 @@ const crearClienteWhatsApp = async (consultorioId) => {
             console.log(`🚀 ¡WhatsApp conectado para el consultorio: ${idStr}!`);
             if (global.inicializandoClientes) delete global.inicializandoClientes[idStr];
             global.whatsappStates[idStr] = { whatsappStatus: 'CONECTADO', whatsappQR: '' };
-            global.whatsappClients[idStr] = client; // Se guarda la instancia una vez operativa
+            global.whatsappClients[idStr] = client; 
 
             try {
                 await Consultorio.findByIdAndUpdate(consultorioId, {
@@ -159,6 +174,25 @@ const crearClienteWhatsApp = async (consultorioId) => {
                         whatsappQR: ''
                     });
                 }
+
+                // 🚀 BLINDAJE DE RAM PARA RENDER: Auto-cierre de Puppeteer tras sincronizar
+                // Esperamos 30 segundos para que RemoteAuth termine de subir el ZIP a Atlas
+                setTimeout(async () => {
+                    console.log(`♻️ Liberando RAM: Cerrando Puppeteer para el consultorio ${idStr}`);
+                    try {
+                        // Desconectamos el cliente de forma limpia. 
+                        // Esto cierra Chromium pero mantiene la sesión viva en MongoDB Atlas.
+                        await client.destroy(); 
+                        
+                        // Limpiamos la instancia global para liberar la memoria RAM de Node.js
+                        delete global.whatsappClients[idStr]; 
+                        
+                        console.log(`✅ RAM Liberada exitosamente para ${idStr}.`);
+                    } catch (destroyErr) {
+                        console.error('Error al liberar Puppeteer:', destroyErr.message);
+                    }
+                }, 30000); // 30 segundos de margen
+
             } catch (dbErr) {
                 console.error('Error actualizando BD en ready:', dbErr.message);
             }
