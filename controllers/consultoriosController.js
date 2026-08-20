@@ -42,20 +42,19 @@ const conectarWhatsappConsultorio = async (req, res) => {
         // =========================================================================
         // 3. ⏳ PROCESAMIENTO EN SEGUNDO PLANO (Post-respuesta)
         // =========================================================================
-        // 🎯 CORRECCIÓN: Cambiamos a 'findOneAndUpdate' para poder usar { consultorioId: localId }
+        // Usamos findOneAndUpdate apuntando al _id que es un String en tu Schema
         Consultorio.findOneAndUpdate(
-            { consultorioId: localId }, // 🔍 Ahora sí buscará correctamente por tu columna personalizada
+            { _id: localId }, // 🔍 Coincide exactamente con el _id: { type: String } de tu Schema
             { whatsappStatus: 'INICIALIZANDO', whatsappQR: '' },
             { upsert: true, new: true, setDefaultsOnInsert: true }
-        ).then((docActualizado) => {
+        ).then(() => {
             console.log(`💾 MongoDB Atlas: Registro seteado en 'INICIALIZANDO' para ID: ${localId}`);
             // 4. Invocamos al helper de Puppeteer de forma totalmente aislada
             crearClienteWhatsApp(localId);
         }).catch(dbErr => {
             console.error(`❌ Error haciendo upsert inicial en Mongo para ${localId}:`, dbErr.message);
-            // IMPORTANTE: Si la BD falló por estructura, evitamos lanzar el bot para no arrastrar basura de memoria
-            global.inicializandoClientes[localId] = false; 
-        });
+            global.inicializandoClientes[localId] = false;
+        }); 5
 
 
     } catch (error) {
@@ -90,7 +89,7 @@ const statusWhatsappConsultorio = async (req, res) => {
         // 2. 🛡️ FALLBACK DE LECTURA LIMPIA (Evita saturar Atlas con Upserts repetitivos)
         try {
             console.log(`🔍 [GET STATUS] Buscando respaldo pasivo en MongoDB para ID: ${idLimpio}...`);
-            
+
             // Cambiamos findOneAndUpdate por findById (Lectura pura)
             const consultorio = await Consultorio.findById(idLimpio);
 
@@ -178,18 +177,20 @@ const restaurarSesionesDeDoctores = async () => {
         console.log(`📌 Se encontraron ${activos.length} consultorios para restaurar en memoria.`);
 
         for (const con of activos) {
-            console.log(`🤖 Levantando WhatsApp en segundo plano para Consultorio ID: ${con._id}`);
+            // 🎯 Convertimos a String para mantener consistencia con los mapas globales
+            const idStr = con._id.toString();
 
-            // Inicializa la instancia del consultorio actual
-            crearClienteWhatsApp(con._id);
+            console.log(`🤖 Levantando WhatsApp en segundo plano para Consultorio ID: ${idStr}`);
+
+            // 🎯 CORRECCIÓN CRÍTICA: Añadimos 'await' para que de verdad espere a que la función termine
+            await crearClienteWhatsApp(idStr);
 
             // =========================================================================
-            // ⏳ SOLUCIÓN CRÍTICA: Espera 8 segundos antes de levantar el siguiente Chromium
+            // ⏳ SOLUCIÓN CRÍTICA: Ahora este delay sí protegerá tu RAM de Render de forma real
             // =========================================================================
             console.log(`⏱ Dándole un respiro a la RAM de Render. Esperando 8 segundos...`);
             await delay(8000);
         }
-
         console.log('=== ✅ KLYNTIC: Proceso de restauración de sesiones finalizado ===');
     } catch (error) {
         console.error('❌ Error crítico restaurando sesiones en el arranque:', error.message);

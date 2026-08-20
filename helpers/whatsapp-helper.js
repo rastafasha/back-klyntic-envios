@@ -93,26 +93,26 @@ const crearClienteWhatsApp = async (consultorioId) => {
                 ]
             }
         });
-       // 🚀 OPTIMIZACIÓN SEGURA DE RAM: Interceptamos la página sin romper el núcleo de WhatsApp
-client.on('pup_page_created', async (page) => {
-    try {
-        await page.setRequestInterception(true);
+        // 🚀 OPTIMIZACIÓN SEGURA DE RAM: Interceptamos la página sin romper el núcleo de WhatsApp
+        client.on('pup_page_created', async (page) => {
+            try {
+                await page.setRequestInterception(true);
 
-        page.on('request', (request) => {
-            const resourceType = request.resourceType();
+                page.on('request', (request) => {
+                    const resourceType = request.resourceType();
 
-            // ⚠️ SOLO bloqueamos lo que genuinamente consume RAM visual y no rompe el JS de WhatsApp
-            // Quitamos 'stylesheet' y 'other' de la lista negra
-            if (['image', 'font', 'media'].includes(resourceType)) {
-                request.abort();
-            } else {
-                request.continue();
+                    // ⚠️ SOLO bloqueamos lo que genuinamente consume RAM visual y no rompe el JS de WhatsApp
+                    // Quitamos 'stylesheet' y 'other' de la lista negra
+                    if (['image', 'font', 'media'].includes(resourceType)) {
+                        request.abort();
+                    } else {
+                        request.continue();
+                    }
+                });
+            } catch (error) {
+                console.error("❌ Error al configurar el interceptor de RAM:", error);
             }
         });
-    } catch (error) {
-        console.error("❌ Error al configurar el interceptor de RAM:", error);
-    }
-});
 
         // =========================================================================
         // 📡 EVENTO QR: Genera y actualiza base de datos
@@ -132,10 +132,15 @@ client.on('pup_page_created', async (page) => {
                 global.whatsappStates[idStr].whatsappStatus = 'ESPERANDO_QR';
                 global.whatsappStates[idStr].whatsappQR = qrBase64;
 
-                await Consultorio.findByIdAndUpdate(consultorioId, {
-                    whatsappStatus: 'ESPERANDO_QR',
-                    whatsappQR: qrBase64
-                });
+                // 🎯 CORRECCIÓN AQUÍ: Cambiamos findByIdAndUpdate por findOneAndUpdate 
+                // para buscar por tu columna de texto e impedir que Mongoose rompa la asincronía.
+                await Consultorio.findOneAndUpdate(
+                    { _id: idStr }, // 🎯 Guardamos directamente en la llave primaria String
+                    {
+                        whatsappStatus: 'ESPERANDO_QR',
+                        whatsappQR: qrBase64
+                    }
+                );
 
                 // 🚀 Envía el evento por Sockets al frontend de Angular
                 if (global.io) {
@@ -148,9 +153,10 @@ client.on('pup_page_created', async (page) => {
                 }
 
             } catch (err) {
-                console.error('Error generando QR Base64:', err.message);
+                console.error('❌ Error generando QR Base64:', err.message);
             }
         });
+
 
         // =========================================================================
         // 🚀 EVENTO READY
@@ -159,7 +165,7 @@ client.on('pup_page_created', async (page) => {
             console.log(`🚀 ¡WhatsApp conectado para el consultorio: ${idStr}!`);
             if (global.inicializandoClientes) delete global.inicializandoClientes[idStr];
             global.whatsappStates[idStr] = { whatsappStatus: 'CONECTADO', whatsappQR: '' };
-            global.whatsappClients[idStr] = client; 
+            global.whatsappClients[idStr] = client;
 
             try {
                 await Consultorio.findByIdAndUpdate(consultorioId, {
@@ -183,11 +189,11 @@ client.on('pup_page_created', async (page) => {
                     try {
                         // Desconectamos el cliente de forma limpia. 
                         // Esto cierra Chromium pero mantiene la sesión viva en MongoDB Atlas.
-                        await client.destroy(); 
-                        
+                        await client.destroy();
+
                         // Limpiamos la instancia global para liberar la memoria RAM de Node.js
-                        delete global.whatsappClients[idStr]; 
-                        
+                        delete global.whatsappClients[idStr];
+
                         console.log(`✅ RAM Liberada exitosamente para ${idStr}.`);
                     } catch (destroyErr) {
                         console.error('Error al liberar Puppeteer:', destroyErr.message);
