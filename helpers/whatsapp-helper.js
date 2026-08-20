@@ -93,25 +93,26 @@ const crearClienteWhatsApp = async (consultorioId) => {
                 ]
             }
         });
-        // 🚀 OPTIMIZACIÓN EXTREMA DE RAM: Interceptamos la página de Puppeteer antes de que cargue WhatsApp
-        client.on('pup_page_created', async (page) => {
-            try {
-                await page.setRequestInterception(true);
+       // 🚀 OPTIMIZACIÓN SEGURA DE RAM: Interceptamos la página sin romper el núcleo de WhatsApp
+client.on('pup_page_created', async (page) => {
+    try {
+        await page.setRequestInterception(true);
 
-                page.on('request', (request) => {
-                    const resourceType = request.resourceType();
+        page.on('request', (request) => {
+            const resourceType = request.resourceType();
 
-                    // Bloqueamos imágenes, estilos, fuentes, videos y otros recursos innecesarios
-                    if (['image', 'stylesheet', 'font', 'media', 'other'].includes(resourceType)) {
-                        request.abort();
-                    } else {
-                        request.continue();
-                    }
-                });
-            } catch (error) {
-                console.error("Error al configurar el interceptor de RAM:", error);
+            // ⚠️ SOLO bloqueamos lo que genuinamente consume RAM visual y no rompe el JS de WhatsApp
+            // Quitamos 'stylesheet' y 'other' de la lista negra
+            if (['image', 'font', 'media'].includes(resourceType)) {
+                request.abort();
+            } else {
+                request.continue();
             }
         });
+    } catch (error) {
+        console.error("❌ Error al configurar el interceptor de RAM:", error);
+    }
+});
 
         // =========================================================================
         // 📡 EVENTO QR: Genera y actualiza base de datos

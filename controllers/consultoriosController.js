@@ -3,7 +3,6 @@ const Consultorio = require('../models/consultorio');
 const { crearClienteWhatsApp, enviarMensajeWhatsApp } = require('../helpers/whatsapp-helper');
 
 // 🚀 1. Arranca el proceso de conexión desde Angular
-// 🚀 1. Arranca el proceso de conexión desde Angular
 const conectarWhatsappConsultorio = async (req, res) => {
     try {
         const localId = String(req.params.id);
@@ -43,20 +42,21 @@ const conectarWhatsappConsultorio = async (req, res) => {
         // =========================================================================
         // 3. ⏳ PROCESAMIENTO EN SEGUNDO PLANO (Post-respuesta)
         // =========================================================================
-        // Ejecutamos el Upsert en Mongo de forma asíncrona sin bloquear al usuario
-        Consultorio.findByIdAndUpdate(
-            localId,
+        // 🎯 CORRECCIÓN: Cambiamos a 'findOneAndUpdate' para poder usar { consultorioId: localId }
+        Consultorio.findOneAndUpdate(
+            { consultorioId: localId }, // 🔍 Ahora sí buscará correctamente por tu columna personalizada
             { whatsappStatus: 'INICIALIZANDO', whatsappQR: '' },
             { upsert: true, new: true, setDefaultsOnInsert: true }
-        ).then(() => {
+        ).then((docActualizado) => {
             console.log(`💾 MongoDB Atlas: Registro seteado en 'INICIALIZANDO' para ID: ${localId}`);
-            // 4. Invocamos al helper de Puppeteer una vez preparado el registro
+            // 4. Invocamos al helper de Puppeteer de forma totalmente aislada
             crearClienteWhatsApp(localId);
         }).catch(dbErr => {
             console.error(`❌ Error haciendo upsert inicial en Mongo para ${localId}:`, dbErr.message);
-            // Si la base de datos falla, igual intentamos encender el servicio
-            crearClienteWhatsApp(localId);
+            // IMPORTANTE: Si la BD falló por estructura, evitamos lanzar el bot para no arrastrar basura de memoria
+            global.inicializandoClientes[localId] = false; 
         });
+
 
     } catch (error) {
         console.error('❌ Error crítico en conectarWhatsappConsultorio:', error.message);
