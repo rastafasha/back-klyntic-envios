@@ -53,7 +53,7 @@ const crearTasa = async(req, res) => {
         // 3. ACTUALIZACIÓN CRUCIAL: Agregamos el ID de la tasa al PERFIL o USUARIO
         // ⚠️ CORRECCIÓN: Cambié 'Tasadollarbcv.findOneAndUpdate' por tu modelo real de Perfil/Usuario (ej: Perfil)
         // Si tu modelo de perfil se llama 'Perfil', asegúrate de importarlo arriba.
-        const perfilActualizado = await Perfil.findOneAndUpdate(
+        const perfilActualizado = await Tasadollarbcv.findOneAndUpdate(
             { usuario: uid }, 
             { $push: { tasas: tasaDB._id }, haveTasa: true }, // Asignamos la relación correctamente
             { new: true }
