@@ -89,6 +89,12 @@ const crearClienteWhatsApp = async (consultorioId) => {
                 // en la carpeta /tmp de Linux, que sí tiene permisos de escritura en Render.
                 dataPath: isProduction ? '/tmp' : './.wwebjs_auth' 
             }),
+            // 🎯 BLINDAJE SUPREMO CONTRA EL REINICIO Y EL DESPEGUE DE FRAME:
+            // Desactivamos la descarga de chats viejos y multimedia del teléfono de la doctora
+            takeoverOnConflict: true, 
+            takeoverTimeoutMs: 10000,
+            authTimeoutMs: 120000, // 2 minutos de tolerancia para que no dé timeout
+            qrMaxImages: 1,
             // 🚀 ALTERNATIVA: Obliga al bot a usar su propio motor local instalado
             webVersionCache: {
                 type: 'local'
@@ -133,10 +139,6 @@ const crearClienteWhatsApp = async (consultorioId) => {
                     // Incrementa la prioridad del proceso del navegador en Linux
                     '--process-per-tab',
 
-                    // 🎯 REDUCCIÓN CRÍTICA: Bajamos el motor V8 interno de Chromium a 100MB 
-                    // para evitar que Render mate el contenedor al descargar el zip de Mongo
-                    '--js-flags=--max-old-space-size=80', 
-                    'takeoverOnConflict: true',
 
                     // 🧹 Limpieza de procesos innecesarios
                     '--disable-speech-api',
@@ -148,8 +150,14 @@ const crearClienteWhatsApp = async (consultorioId) => {
                     '--mute-audio',
                     '--no-default-browser-check',
                     '--disable-features=Translate,OptimizationHints,OptimizationHintsFetching,IntensiveWakeUpThrottling',
+                     // 🎯 REDUCCIÓN CRÍTICA: Bajamos el motor V8 interno de Chromium a 100MB 
+                    // para evitar que Render mate el contenedor al descargar el zip de Mongo
+                    // 🚀 CONTROL ESTRICTO DE RAM V8 (Fuerza a limpiar la RAM agresivamente)
+                    
                     // 🎯 LAS DOS LÍNEAS DE BLINDAJE PARA FORZAR EL QR:
+                    '--js-flags=--max-old-space-size=80',
                     '--disable-web-security', // 🚀 Permite que la librería inyecte los scripts del QR sin bloqueos de origen de Chromium
+                    
                     '--force-device-scale-factor=1', // 🚀 Fuerza a Chrome a dibujar los elementos a escala real para que la librería capture el texto del QR
                     // 🎯 EL ARGUMENTO SALVADOR CONTRA EL DETACHED FRAME:
                     // Fuerza a Chromium a procesar los scripts de WhatsApp en un solo hilo de CPU de forma secuencial,
