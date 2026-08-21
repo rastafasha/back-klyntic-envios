@@ -39,7 +39,7 @@ const conectarWhatsappConsultorio = async (req, res) => {
             msg: 'Iniciando el motor de WhatsApp en el microservicio en segundo plano...'
         });
 
-        // =========================================================================
+       // =========================================================================
         // 3. ⏳ PROCESAMIENTO EN SEGUNDO PLANO (Post-respuesta)
         // =========================================================================
         // Usamos findOneAndUpdate apuntando al _id que es un String en tu Schema
@@ -53,8 +53,14 @@ const conectarWhatsappConsultorio = async (req, res) => {
             crearClienteWhatsApp(localId);
         }).catch(dbErr => {
             console.error(`❌ Error haciendo upsert inicial en Mongo para ${localId}:`, dbErr.message);
+            // 🎯 BLINDAJE: Si la base de datos falla, liberamos el candado en RAM de inmediato
+            // para que no se quede la pantalla congelada para siempre y puedan reintentar.
             global.inicializandoClientes[localId] = false;
-        }); 5
+            global.whatsappStates[localId] = {
+                whatsappStatus: 'ERROR',
+                whatsappQR: ''
+            };
+        }); 
 
 
     } catch (error) {
