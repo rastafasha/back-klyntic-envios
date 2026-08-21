@@ -1,6 +1,6 @@
 // const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');//modo pago para guardar RemoteAuth
-const { Client, RemoteAuth, MessageMedia, MongoStore } = require('whatsapp-web.js');
-// const { MongoStore } = require('wwebjs-mongo'); // 🚀 CORRECCIÓN 1: Importación obligatoria
+const { Client, RemoteAuth, MessageMedia } = require('whatsapp-web.js');
+const { MongoStore } = require('wwebjs-mongo'); // 🚀 CORRECCIÓN 1: Importación obligatoria
 const Consultorio = require('../models/consultorio');
 const QRCode = require('qrcode');
 const mongoose = require('mongoose');
@@ -47,7 +47,7 @@ const crearClienteWhatsApp = async (consultorioId) => {
             //Inicializamos el cliente con la estrategia Remota
             authStrategy: new RemoteAuth({
                 store: store,
-                backupSyncIntervalMs: 300000,
+                backupSyncIntervalMs: 300000, 
                 clientId: `session-${idStr}` // 🚀 CORRECCIÓN 2: ID dinámico para separar los consultorios en Atlas
             }),
             // 🚀 SOLUCIÓN AL BLOQUEO DEL TELÉFONO: Forzar la última firma web validada de WhatsApp
