@@ -128,36 +128,38 @@ const actualizarTasa = async(req, res) => {
     }
 };
 
-const borrarTasa = async(req, res) => {
+const borrarTasa = async (req, res) => {
     const id = req.params.id;
-    const uid = req.uid;
 
     try {
-        const tasaDB = await Tasadollarbcv.findById(id);
-        if (!tasaDB) {
+        console.log(`🗑️ [TASAS] Intentando eliminar tasa ID: ${id}`);
+
+        // 🎯 1. BORRADO DIRECTO Y BLINDADO
+        // Usamos findOneAndDelete con objeto para que acepte tanto ObjectIds como Strings planos
+        const tasaEliminada = await Tasadollarbcv.findOneAndDelete({ _id: id });
+        
+        if (!tasaEliminada) {
             return res.status(404).json({ ok: false, msg: 'Tasa no encontrada' });
         }
 
-        // Seguridad
-        // if (tasaDB.usuario.toString() !== uid && req.role !== 'ADMIN_ROLE') {
-        //     return res.status(403).json({ ok: false, msg: 'No tiene permisos' });
-        // }
-
-        // Limpiar el Perfil
-        await Profile.findOneAndUpdate(
-            { usuario: tasaDB.usuario },
-            { $pull: { tasa: id } }
-        );
-
-        // Borrar el documento
-        await Tasadollarbcv.findByIdAndDelete(id);
-
-        res.json({ ok: true, msg: 'Tasa eliminada y perfil actualizado' });
+        console.log(`✅ [TASAS] Tasa ${id} eliminada con éxito del historial global.`);
+        
+        return res.json({ 
+            ok: true, 
+            msg: 'Tasa eliminada' 
+        });
 
     } catch (error) {
-        res.status(500).json({ ok: false, msg: 'Error al borrar tasa' });
+        console.error('❌ Error crítico en borrarTasa:', error.message);
+        return res.status(500).json({ 
+            ok: false, 
+            msg: 'Error al borrar tasa',
+            error: error.message 
+        });
     }
 };
+
+
 
 
 
