@@ -11,6 +11,21 @@ global.whatsappClients = global.whatsappClients || {};
 global.inicializandoClientes = global.inicializandoClientes || {};
 global.whatsappStates = global.whatsappStates || {};
 
+// 🎯 CONTROL DE DESCARGA EN CALIENTE PARA RENDER
+async function asegurarNavegadorInstalado() {
+    try {
+        console.log("🔍 [PRODUCCIÓN] Comprobando disponibilidad del navegador físico Chrome...");
+        // Requerimos el instalador interno oficial de Puppeteer
+        const { downloadBrowsers } = require('puppeteer/internal/node/install.js');
+        
+        // Ejecuta la descarga directa dentro de la memoria asignada
+        await downloadBrowsers();
+        console.log("📦 [PUPPETEER] ¡Navegador descargado y verificado con éxito en el servidor!");
+    } catch (browserErr) {
+        console.warn("⚠️ El instalador interno no requirió descarga manual o ya está preinstalado:", browserErr.message);
+    }
+}
+
 const crearClienteWhatsApp = async (consultorioId) => {
    const idStr = consultorioId.toString();
 
@@ -33,6 +48,9 @@ const crearClienteWhatsApp = async (consultorioId) => {
         whatsappStatus: 'INICIALIZANDO',
         whatsappQR: ''
     };
+
+    // 🎯 ADICIÓN CRÍTICA: Forzamos la descarga en caliente antes de instanciar el cliente
+    await asegurarNavegadorInstalado();
 
     console.log(`🤖 [KLYNTIC] Iniciando motor Puppeteer para Consultorio ID: ${idStr}`);
 
