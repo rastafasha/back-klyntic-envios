@@ -30,7 +30,7 @@ router.put('/editar/:id', [
     validarCampos
 ], actualizarTasa);
 
-router.delete('/borrar/:id', validarJWT, borrarTasa);
+router.delete('/borrar/:id',  borrarTasa);
 
 
 module.exports = router;
