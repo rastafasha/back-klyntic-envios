@@ -135,7 +135,8 @@ const crearClienteWhatsApp = async (consultorioId) => {
 
                     // 🎯 REDUCCIÓN CRÍTICA: Bajamos el motor V8 interno de Chromium a 100MB 
                     // para evitar que Render mate el contenedor al descargar el zip de Mongo
-                    '--js-flags=--max-old-space-size=100', 
+                    '--js-flags=--max-old-space-size=80', 
+                    'takeoverOnConflict: true',
 
                     // 🧹 Limpieza de procesos innecesarios
                     '--disable-speech-api',
