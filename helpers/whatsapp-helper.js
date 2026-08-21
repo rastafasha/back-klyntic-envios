@@ -75,11 +75,11 @@ const crearClienteWhatsApp = async (consultorioId) => {
 
 
         const client = new Client({
-            // 🎯 CAMBIO DE EMERGENCIA: Forzamos LocalAuth con un ID único
-            // Esto guardará la sesión en una carpeta del servidor en lugar de usar la DB
-            // authStrategy: new LocalAuth({
-            //     clientId: `session-${idStr}`
-            // }),
+            // En la raíz del objeto new Client({ ... })
+            authTimeoutMs: 120000, // ⏱️ Subimos a 2 minutos el tiempo de espera de autenticación
+            qrMaxImages: 3,        // Permite reintentar el dibujado del QR si el primer frame se cae
+
+            
             //Inicializamos el cliente con la estrategia Remota
             authStrategy: new RemoteAuth({
                 store: store,
@@ -89,11 +89,6 @@ const crearClienteWhatsApp = async (consultorioId) => {
                 // en la carpeta /tmp de Linux, que sí tiene permisos de escritura en Render.
                 dataPath: isProduction ? '/tmp' : './.wwebjs_auth' 
             }),
-            // 🚀 SOLUCIÓN AL BLOQUEO DEL TELÉFONO: Forzar la última firma web validada de WhatsApp
-            // webVersionCache: {
-            //     type: 'remote',
-            //     remotePath: 'https://githubusercontent.com'
-            // },
             // 🚀 ALTERNATIVA: Obliga al bot a usar su propio motor local instalado
             webVersionCache: {
                 type: 'local'
@@ -132,6 +127,11 @@ const crearClienteWhatsApp = async (consultorioId) => {
                     '--disable-background-timer-throttling',
                     '--disable-renderer-backgrounding',
                     '--disable-background-networking',
+
+                    // 🎯 REFUERZO DE ACERO CONTRA "FRAME WAS DETACHED":
+                    '--disable-software-rasterizer', // Evita que la CPU intente dibujar gráficos 3D
+                    // Incrementa la prioridad del proceso del navegador en Linux
+                    '--process-per-tab',
 
                     // 🎯 REDUCCIÓN CRÍTICA: Bajamos el motor V8 interno de Chromium a 100MB 
                     // para evitar que Render mate el contenedor al descargar el zip de Mongo
