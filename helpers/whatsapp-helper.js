@@ -5,6 +5,7 @@ const Consultorio = require('../models/consultorio');
 const QRCode = require('qrcode');
 const mongoose = require('mongoose');
 const path = require('path');
+const fs = require('fs'); 
 
 // Inicialización segura de mapas globales en memoria RAM
 global.whatsappClients = global.whatsappClients || {};
@@ -14,17 +15,24 @@ global.whatsappStates = global.whatsappStates || {};
 // 🎯 CONTROL DE DESCARGA EN CALIENTE PARA RENDER
 async function asegurarNavegadorInstalado() {
     try {
-        console.log("🔍 [PRODUCCIÓN] Comprobando disponibilidad del navegador físico Chrome...");
-        // Requerimos el instalador interno oficial de Puppeteer
-        const { downloadBrowsers } = require('puppeteer/internal/node/install.js');
+        const isProduction = process.env.NODE_ENV === 'production';
         
-        // Ejecuta la descarga directa dentro de la memoria asignada
+        // 🎯 CRÍTICO: Si no es producción (estás en tu Mac), no descargues nada y sal de la función
+        if (!isProduction) {
+            console.log("💻 [LOCAL] Entorno de desarrollo detectado. Saltando descarga en caliente de Chrome.");
+            return;
+        }
+
+        console.log("🔍 [PRODUCCIÓN] Comprobando disponibilidad del navegador físico Chrome...");
+        const { downloadBrowsers } = require('puppeteer/internal/node/install.js');
         await downloadBrowsers();
-        console.log("📦 [PUPPETEER] ¡Navegador descargado y verificado con éxito en el servidor!");
+        console.log("📦 [PUPPETEER] ¡Navegador verificado con éxito en el servidor!");
+        
     } catch (browserErr) {
-        console.warn("⚠️ El instalador interno no requirió descarga manual o ya está preinstalado:", browserErr.message);
+        console.warn("⚠️ El instalador interno no requirió descarga manual:", browserErr.message);
     }
 }
+
 
 const crearClienteWhatsApp = async (consultorioId) => {
    const idStr = consultorioId.toString();
@@ -59,6 +67,12 @@ const crearClienteWhatsApp = async (consultorioId) => {
         const store = new MongoStore({ mongoose: mongoose });
         const isProduction = process.env.NODE_ENV === 'production';
 
+        // 🎯 DEFINICIÓN DINÁMICA DE RUTA SEGÚN EL ENTORNO
+        // En Render usa la ruta absoluta de Linux, en tu Mac usa una carpeta interna de tu proyecto (.cache)
+        const rutaCacheSegura = isProduction
+            ? path.resolve('/opt/render/project/src/.cache/puppeteer')
+            : path.resolve(__dirname, '..', '.cache', 'puppeteer'); // Ajusta los '..' si estás en una subcarpeta
+
 
         const client = new Client({
             // 🎯 CAMBIO DE EMERGENCIA: Forzamos LocalAuth con un ID único
@@ -70,7 +84,10 @@ const crearClienteWhatsApp = async (consultorioId) => {
             authStrategy: new RemoteAuth({
                 store: store,
                 backupSyncIntervalMs: 300000, 
-                clientId: `session-${idStr}_v2` // 🚀 CORRECCIÓN 2: ID dinámico para separar los consultorios en Atlas
+                clientId: `session-${idStr}_v2`, // 🚀 CORRECCIÓN 2: ID dinámico para separar los consultorios en Atlas
+                 // 🎯 LA SOLUCIÓN CRÍTICA: Forzamos a la librería a crear los archivos temporales (.zip)
+                // en la carpeta /tmp de Linux, que sí tiene permisos de escritura en Render.
+                dataPath: isProduction ? '/tmp' : './.wwebjs_auth' 
             }),
             // 🚀 SOLUCIÓN AL BLOQUEO DEL TELÉFONO: Forzar la última firma web validada de WhatsApp
             // webVersionCache: {
@@ -90,9 +107,11 @@ const crearClienteWhatsApp = async (consultorioId) => {
                 defaultViewport: { width: 800, height: 600 }, // 🚀 Reduce la RAM visual a casi cero
                 // 🎯 PASO 2: FORZAMOS EL EJECUTABLE EXACTO EN RENDER
                 // Con esto, la librería dejará de buscar la versión 146 vieja y abrirá la 151 que ya está en el servidor
+               // 🎯 RUTA DEL EJECUTABLE
+                // En Render forzamos el binario 151, en tu Mac dejamos que use tu Chrome comercial instalado
                 executablePath: isProduction
                     ? '/opt/render/project/src/.cache/puppeteer/chrome/linux-151.0.7922.71/chrome-linux64/chrome'
-                    : undefined, // En local (Mac/Windows) dejamos que use tu Chrome normal de desarrollo
+                    : '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', // Cambia a tu ruta local de Mac
                     
                 args: [
                     // 🛡️ Seguridad y Contenedorización (Crucial para Render/Linux)
@@ -276,7 +295,7 @@ const crearClienteWhatsApp = async (consultorioId) => {
         });
 
         // =========================================================================
-        // 🏁 INICIALIZACIÓN
+        // 🏁 INICIALIZACIÓN (Eventos declarados ANTES de inicializar)
         // =========================================================================
         try {
             console.log(`⏳ Lanzando inicialización de Puppeteer en segundo plano para ${idStr}...`);
@@ -284,6 +303,15 @@ const crearClienteWhatsApp = async (consultorioId) => {
             if (!global.inicializandoClientes) global.inicializandoClientes = {};
             global.inicializandoClientes[idStr] = true;
 
+            // 🎯 EL PARCHE DE ORO CONTRA EL BUG ENOENT DE WHATSAPP-WEB.JS
+            // Creamos un archivo zip vacío en la raíz para que la librería no se caiga al intentar buscarlo
+            const nombreZipFantasma = `RemoteAuth-session-${idStr}_v2.zip`;
+            if (!fs.existsSync(nombreZipFantasma)) {
+                fs.writeFileSync(nombreZipFantasma, ''); // Crea el archivo vacío de inmediato
+                console.log(`🛡️ [PARCHE] Archivo fantasma ${nombreZipFantasma} creado con éxito para burlar el bug.`);
+            }
+
+            // 🚀 Inicialización nativa
             client.initialize().catch(err => {
                 console.error(`❌ Error interno en initialize de cliente ${idStr}:`, err.message);
                 global.whatsappStates[idStr] = { whatsappStatus: 'ERROR', whatsappQR: '' };
