@@ -47,21 +47,54 @@ router.get('/tasks/sync-tasa-bcv', async (req, res) => {
 // =========================================================================
 router.post('/forzar-actualizacion-tasa', async (req, res) => {
     try {
-        const tasa = await sincronizarTasasOficiales();
-        
-        if (tasa) {
-            // También notificamos por Socket en la acción manual del médico/administrador
+        console.log('🎛️ [PANEL] Ejecutando sincronización manual de tasa solicitada por el usuario...');
+
+        // 🎯 1. PROMESAS CON TIEMPO LÍMITE (Evita que la pantalla del médico se congele indefinidamente)
+        // Si en 25 segundos el BCV no responde, se cancela para no colgar el servidor
+        const timeoutPromise = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('Tiempo de espera agotado al conectar con el servidor cambiario')), 25000)
+        );
+
+        // Corremos la sincronización y el temporizador en carrera
+        const tasa = await Promise.race([
+            sincronizarTasasOficiales(),
+            timeoutPromise
+        ]);
+
+        // 🎯 2. VERIFICACIÓN DE SEGURIDAD EXPLICITA
+        // Evaluamos explícitamente que no sea null, undefined o un string vacío
+        if (tasa !== null && tasa !== undefined && tasa !== '') {
+            
+            // Notificamos por Sockets en tiempo real a todas las pantallas abiertas de Angular
             if (global.io) {
                 global.io.emit('tasa-bcv-actualizada', { tasa });
+                console.log(`📡 [SOCKET] Nueva tasa emitida globalmente: ${tasa}`);
             }
             
-            return res.json({ ok: true, msg: 'Tasa actualizada manualmente en la mañana', tasa });
+            return res.json({ 
+                ok: true, 
+                msg: 'Tasa oficial actualizada con éxito desde el panel administrativo.', 
+                tasa 
+            });
+
         } else {
-            return res.status(500).json({ ok: false, msg: 'No se pudo conectar con el BCV' });
+            return res.status(400).json({ 
+                ok: false, 
+                msg: 'El portal cambiario respondió correctamente pero devolvió un formato de tasa inválido.' 
+            });
         }
+
     } catch (error) {
+        console.error('❌ Error crítico en forzar-actualizacion-tasa:', error.message);
+        
+        // Manejo amigable si el error fue por lentitud del BCV
+        if (error.message.includes('Tiempo de espera')) {
+            return res.status(504).json({ ok: false, msg: error.message });
+        }
+
         return res.status(500).json({ ok: false, error: error.message });
     }
 });
+
 
 module.exports = router;
