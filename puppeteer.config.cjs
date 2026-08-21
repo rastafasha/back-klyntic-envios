@@ -1,9 +1,9 @@
-const { join } = require('path');
+const path = require('path');
 
 /**
  * @type {import("puppeteer").Configuration}
  */
 module.exports = {
-  // Descarga Chrome dentro de la carpeta del proyecto en Render
-  cacheDirectory: join(__dirname, '.cache', 'puppeteer'),
+  // 🎯 CORRECCIÓN: path.resolve garantiza que la ruta sea absoluta desde la raíz del servidor
+  cacheDirectory: path.resolve(__dirname, '.cache', 'puppeteer'),
 };
