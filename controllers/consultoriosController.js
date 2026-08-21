@@ -177,19 +177,17 @@ const restaurarSesionesDeDoctores = async () => {
         console.log(`📌 Se encontraron ${activos.length} consultorios para restaurar en memoria.`);
 
         for (const con of activos) {
-            // 🎯 Convertimos a String para mantener consistencia con los mapas globales
             const idStr = con._id.toString();
-
             console.log(`🤖 Levantando WhatsApp en segundo plano para Consultorio ID: ${idStr}`);
 
-            // 🎯 CORRECCIÓN CRÍTICA: Añadimos 'await' para que de verdad espere a que la función termine
+            // Ejecuta e inicializa el cliente
             await crearClienteWhatsApp(idStr);
 
-            // =========================================================================
-            // ⏳ SOLUCIÓN CRÍTICA: Ahora este delay sí protegerá tu RAM de Render de forma real
-            // =========================================================================
-            console.log(`⏱ Dándole un respiro a la RAM de Render. Esperando 8 segundos...`);
-            await delay(8000);
+            // 🎯 RESPIRO EXTENDIDO: Cambiamos de 8 a 20 segundos.
+            // Esto le da tiempo completo a Node de descargar el zip de Mongo, limpiar el recolector de basura (Garbage Collector) 
+            // y estabilizar la sesión antes de pasar al siguiente doctor.
+            console.log(`⏱ Dándole un respiro profundo a la RAM de Render. Esperando 20 segundos...`);
+            await delay(20000);
         }
         console.log('=== ✅ KLYNTIC: Proceso de restauración de sesiones finalizado ===');
     } catch (error) {

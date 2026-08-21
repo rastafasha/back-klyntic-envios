@@ -81,8 +81,9 @@ const crearClienteWhatsApp = async (consultorioId) => {
                     '--disable-renderer-backgrounding',
                     '--disable-background-networking',
 
-                    // 🚀 LÍMITE DE RAM SEGURO Y UNIFICADO
-                    '--js-flags=--max-old-space-size=256',
+                    // 🎯 REDUCCIÓN CRÍTICA: Bajamos el motor V8 interno de Chromium a 100MB 
+                    // para evitar que Render mate el contenedor al descargar el zip de Mongo
+                    '--js-flags=--max-old-space-size=100', 
 
                     // 🧹 Limpieza de procesos innecesarios
                     '--disable-speech-api',
