@@ -12,11 +12,19 @@ global.inicializandoClientes = global.inicializandoClientes || {};
 global.whatsappStates = global.whatsappStates || {};
 
 const crearClienteWhatsApp = async (consultorioId) => {
-    const idStr = consultorioId.toString();
+   const idStr = consultorioId.toString();
 
+    // 🎯 CANDADO INTERNO ULTRA SEGURO: 
+    // Si la instancia ya existe en los mapas globales, matamos la función al instante
     if (global.whatsappClients[idStr]) {
-        console.log(`ℹ️ El cliente del consultorio ${idStr} ya está activo.`);
+        console.log(`⚠️ [PUPPETEER] Instancia ya activa en RAM para ID: ${idStr}. Cancelando duplicado.`);
         return global.whatsappClients[idStr];
+    }
+
+    // Si ya se está inicializando en este momento, no permitas abrir otro Chromium
+    if (global.whatsappStates[idStr]?.whatsappStatus === 'INICIALIZANDO' && global.whatsappClients[idStr]) {
+        console.log(`🛑 [PUPPETEER] Bloqueo de seguridad: Ya hay un Chromium abriéndose para el ID: ${idStr}`);
+        return;
     }
 
     global.inicializandoClientes[idStr] = true;
@@ -40,7 +48,7 @@ const crearClienteWhatsApp = async (consultorioId) => {
             //Inicializamos el cliente con la estrategia Remota
             authStrategy: new RemoteAuth({
                 store: store,
-                backupSyncIntervalMs: 60000,
+                backupSyncIntervalMs: 300000,
                 clientId: `session-${idStr}` // 🚀 CORRECCIÓN 2: ID dinámico para separar los consultorios en Atlas
             }),
             // 🚀 SOLUCIÓN AL BLOQUEO DEL TELÉFONO: Forzar la última firma web validada de WhatsApp
