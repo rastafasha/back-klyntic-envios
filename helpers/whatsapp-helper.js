@@ -4,6 +4,7 @@ const { MongoStore } = require('wwebjs-mongo'); // 🚀 CORRECCIÓN 1: Importaci
 const Consultorio = require('../models/consultorio');
 const QRCode = require('qrcode');
 const mongoose = require('mongoose');
+const path = require('path');
 
 global.whatsappClients = global.whatsappClients || {};
 global.inicializandoClientes = global.inicializandoClientes || {};
@@ -55,7 +56,7 @@ const crearClienteWhatsApp = async (consultorioId) => {
             // Dejamos que la librería use su propia estrategia nativa actualizada.
             puppeteer: {
                 headless: true,
-                cacheDirectory: path.resolve(__dirname, '..', '.cache', 'puppeteer'), // Ajusta los '..' si tu archivo está en una subcarpeta
+                cacheDirectory: path.resolve('/opt/render/project/src/.cache/puppeteer'),  // Ajusta los '..' si tu archivo está en una subcarpeta
                 defaultViewport: { width: 800, height: 600 }, // 🚀 Reduce la RAM visual a casi cero
                 executablePath: isProduction
                     ? undefined
