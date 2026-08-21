@@ -105,7 +105,10 @@ const crearClienteWhatsApp = async (consultorioId) => {
                     '--disable-ipc-flooding-protection',
                     '--mute-audio',
                     '--no-default-browser-check',
-                    '--disable-features=Translate,OptimizationHints,OptimizationHintsFetching,IntensiveWakeUpThrottling'
+                    '--disable-features=Translate,OptimizationHints,OptimizationHintsFetching,IntensiveWakeUpThrottling',
+                    // 🎯 LAS DOS LÍNEAS DE BLINDAJE PARA FORZAR EL QR:
+                    '--disable-web-security', // 🚀 Permite que la librería inyecte los scripts del QR sin bloqueos de origen de Chromium
+                    '--force-device-scale-factor=1' // 🚀 Fuerza a Chrome a dibujar los elementos a escala real para que la librería capture el texto del QR
 
                 ]
             }
