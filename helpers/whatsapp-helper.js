@@ -55,11 +55,12 @@ const crearClienteWhatsApp = async (consultorioId) => {
             // Dejamos que la librería use su propia estrategia nativa actualizada.
             puppeteer: {
                 headless: true,
-                defaultViewport: { width: 10, height: 10 }, // 🚀 Reduce la RAM visual a casi cero
+                defaultViewport: { width: 800, height: 600 }, // 🚀 Reduce la RAM visual a casi cero
                 executablePath: isProduction
                     ? undefined
                     : '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
                 args: [
+                    // 🛡️ Seguridad y Contenedorización (Crucial para Render/Linux)
                     '--no-sandbox',
                     '--disable-setuid-sandbox',
                     '--disable-dev-shm-usage', // Evita que se quede sin memoria RAM en Render
@@ -68,27 +69,29 @@ const crearClienteWhatsApp = async (consultorioId) => {
                     '--no-zygote',
                     '--disable-extensions',
                     '--disable-blink-features=AutomationControlled',
-                    // ENGAÑA A WHATSAPP: Simula ser un Google Chrome real de escritorio
+
+                    // 🎭 Identidad: Simula ser un Google Chrome real de escritorio
                     '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
 
-                    // 🚀 CORRECCIÓN SINTAXIS Y LÍMITE: Bajamos a 256MB sin comillas para no asfixiar a Node.js en Render
-                    '--js-flags=--max-old-space-size=180', // 🚀 Bajamos a 180MB para dejarle el resto a Express/Mongo
-                    '--single-process', // 🚀 CRÍTICO: Fuerza a Chrome a usar un solo hilo de RAM en lugar de tres
-
-                    '--disable-speech-api',
-                    '--disable-background-networking',
-                    '--disable-background-timer-throttling',
+                    // 🎯 RENDIMIENTO SIN CONGELAMIENTO (Evita que WhatsApp Web se duerma en segundo plano)
                     '--disable-backgrounding-occluded-windows',
+                    '--disable-background-timer-throttling',
+                    '--disable-renderer-backgrounding',
+                    '--disable-background-networking',
+
+                    // 🚀 LÍMITE DE RAM SEGURO Y UNIFICADO
+                    '--js-flags=--max-old-space-size=256',
+
+                    // 🧹 Limpieza de procesos innecesarios
+                    '--disable-speech-api',
                     '--disable-breakpad',
                     '--disable-client-side-phishing-detection',
                     '--disable-component-extensions-with-background-pages',
                     '--disable-default-apps',
-                    '--disable-features=Translate',
                     '--disable-ipc-flooding-protection',
-                    '--disable-renderer-backgrounding',
                     '--mute-audio',
                     '--no-default-browser-check',
-                    '--disable-features=OptimizationHints,OptimizationHintsFetching,Translate,IntensiveWakeUpThrottling'
+                    '--disable-features=Translate,OptimizationHints,OptimizationHintsFetching,IntensiveWakeUpThrottling'
 
                 ]
             }
