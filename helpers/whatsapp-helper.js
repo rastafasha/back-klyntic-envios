@@ -84,7 +84,7 @@ const crearClienteWhatsApp = async (consultorioId) => {
             authStrategy: new RemoteAuth({
                 store: store,
                 backupSyncIntervalMs: 300000, 
-                clientId: `session-${idStr}_v2`, // 🚀 CORRECCIÓN 2: ID dinámico para separar los consultorios en Atlas
+                clientId: isProduction ? 'session-3_v2' : `session-${idStr}_v2`,  // 🚀 CORRECCIÓN 2: ID dinámico para separar los consultorios en Atlas
                  // 🎯 LA SOLUCIÓN CRÍTICA: Forzamos a la librería a crear los archivos temporales (.zip)
                 // en la carpeta /tmp de Linux, que sí tiene permisos de escritura en Render.
                 dataPath: isProduction ? '/tmp' : './.wwebjs_auth' 
