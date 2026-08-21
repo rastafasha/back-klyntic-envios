@@ -85,11 +85,15 @@ const crearClienteWhatsApp = async (consultorioId) => {
             // Dejamos que la librería use su propia estrategia nativa actualizada.
             puppeteer: {
                 headless: true,
+                // 🎯 PASO 1: Le indicamos la carpeta raíz de caché donde se descargó la versión 151
                 cacheDirectory: path.resolve('/opt/render/project/src/.cache/puppeteer'),  // Ajusta los '..' si tu archivo está en una subcarpeta
                 defaultViewport: { width: 800, height: 600 }, // 🚀 Reduce la RAM visual a casi cero
+                // 🎯 PASO 2: FORZAMOS EL EJECUTABLE EXACTO EN RENDER
+                // Con esto, la librería dejará de buscar la versión 146 vieja y abrirá la 151 que ya está en el servidor
                 executablePath: isProduction
-                    ? undefined
-                    : '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+                    ? '/opt/render/project/src/.cache/puppeteer/chrome/linux-151.0.7922.71/chrome-linux64/chrome'
+                    : undefined, // En local (Mac/Windows) dejamos que use tu Chrome normal de desarrollo
+                    
                 args: [
                     // 🛡️ Seguridad y Contenedorización (Crucial para Render/Linux)
                     '--no-sandbox',
