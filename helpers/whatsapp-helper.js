@@ -1,5 +1,5 @@
-const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');//modo pago para guardar RemoteAuth
-// const { Client, RemoteAuth, MessageMedia } = require('whatsapp-web.js');
+// const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');//modo pago para guardar RemoteAuth
+const { Client, RemoteAuth, MessageMedia } = require('whatsapp-web.js');
 const { MongoStore } = require('wwebjs-mongo'); // 🚀 CORRECCIÓN 1: Importación obligatoria
 const Consultorio = require('../models/consultorio');
 const QRCode = require('qrcode');
@@ -45,15 +45,15 @@ const crearClienteWhatsApp = async (consultorioId) => {
         const client = new Client({
             // 🎯 CAMBIO DE EMERGENCIA: Forzamos LocalAuth con un ID único
             // Esto guardará la sesión en una carpeta del servidor en lugar de usar la DB
-            authStrategy: new LocalAuth({
-                clientId: `session-${idStr}`
-            }),
-            //Inicializamos el cliente con la estrategia Remota
-            // authStrategy: new RemoteAuth({
-            //     store: store,
-            //     backupSyncIntervalMs: 300000, 
-            //     clientId: `session-${idStr}` // 🚀 CORRECCIÓN 2: ID dinámico para separar los consultorios en Atlas
+            // authStrategy: new LocalAuth({
+            //     clientId: `session-${idStr}`
             // }),
+            //Inicializamos el cliente con la estrategia Remota
+            authStrategy: new RemoteAuth({
+                store: store,
+                backupSyncIntervalMs: 300000, 
+                clientId: `session-${idStr}_v2` // 🚀 CORRECCIÓN 2: ID dinámico para separar los consultorios en Atlas
+            }),
             // 🚀 SOLUCIÓN AL BLOQUEO DEL TELÉFONO: Forzar la última firma web validada de WhatsApp
             // webVersionCache: {
             //     type: 'remote',
