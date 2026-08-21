@@ -7,24 +7,40 @@ const { sincronizarTasasOficiales } = require('../services/cron-tasas.service');
 // =========================================================================
 router.get('/tasks/sync-tasa-bcv', async (req, res) => {
     try {
-        console.log('⏰ [CRON-JOB.ORG] Petición externa recibida para actualizar tasa...');
+        console.log('⏰ [CRON-JOB.ORG] Petición externa recibida. Liberando conexión inmediatamente...');
         
-        // Ejecuta el servicio que limpia la coma y consulta la API
-        const tasa = await sincronizarTasasOficiales();
+        // 🎯 1. RESPUESTA INMEDIATA: Evita el Timeout de 30 segundos en cron-job.org
+        res.status(202).json({ 
+            ok: true, 
+            msg: 'Petición aceptada. Sincronizando la tasa en segundo plano...' 
+        });
 
-        if (tasa) {
-            // Notificamos a Angular por Sockets en tiempo real si el socket está activo
-            if (global.io) {
-                global.io.emit('tasa-bcv-actualizada', { tasa });
-            }
-            return res.status(200).json({ ok: true, msg: 'Tasa sincronizada por cronjob', tasa });
-        } else {
-            return res.status(500).json({ ok: false, msg: 'Fallo en la sincronización automática.' });
-        }
+        // 🎯 2. PROCESAMIENTO EN SEGUNDO PLANO (Post-respuesta)
+        // Ejecutamos de forma asíncrona sin bloquear la respuesta HTTP
+        sincronizarTasasOficiales()
+            .then((tasa) => {
+                if (tasa) {
+                    console.log(`✅ Tasa sincronizada con éxito en segundo plano: ${tasa}`);
+                    // Notificamos a Angular por Sockets en tiempo real
+                    if (global.io) {
+                        global.io.emit('tasa-bcv-actualizada', { tasa });
+                    }
+                } else {
+                    console.error('❌ Fallo en la sincronización automática: No se obtuvo tasa.');
+                }
+            })
+            .catch(syncErr => {
+                console.error('❌ Error crítico ejecutando la sincronización en segundo plano:', syncErr.message);
+            });
+
     } catch (error) {
-        return res.status(500).json({ ok: false, error: error.message });
+        console.error('❌ Error crítico en la ruta del cronjob:', error.message);
+        if (!res.headersSent) {
+            return res.status(500).json({ ok: false, error: error.message });
+        }
     }
 });
+
 
 // =========================================================================
 // 🎛️ 2. ENDPOINT MANUAL PARA EL PANEL ADMINISTRATIVO (Método POST)
