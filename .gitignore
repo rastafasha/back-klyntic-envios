@@ -6,3 +6,5 @@ node_modules/
 # Sesiones de WhatsApp (ZlipBot)
 whatsapp-sessions/
 whatsapp-session/
+RemoteAuth-session-*.zip
+.cache/
