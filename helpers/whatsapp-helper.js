@@ -150,19 +150,25 @@ const crearClienteWhatsApp = async (consultorioId) => {
                     '--mute-audio',
                     '--no-default-browser-check',
                     '--disable-features=Translate,OptimizationHints,OptimizationHintsFetching,IntensiveWakeUpThrottling',
-                     // 🎯 REDUCCIÓN CRÍTICA: Bajamos el motor V8 interno de Chromium a 100MB 
-                    // para evitar que Render mate el contenedor al descargar el zip de Mongo
-                    // 🚀 CONTROL ESTRICTO DE RAM V8 (Fuerza a limpiar la RAM agresivamente)
                     
                     // 🎯 LAS DOS LÍNEAS DE BLINDAJE PARA FORZAR EL QR:
-                    '--js-flags=--max-old-space-size=80',
+                    
                     '--disable-web-security', // 🚀 Permite que la librería inyecte los scripts del QR sin bloqueos de origen de Chromium
                     
                     '--force-device-scale-factor=1', // 🚀 Fuerza a Chrome a dibujar los elementos a escala real para que la librería capture el texto del QR
+                    '--js-flags=--max-old-space-size=80',
+                    // 🧠 CAMBIO CLAVE: En Render limita a 80MB de RAM, en tu Mac/PC le da 4GB (4096MB) para digerir los grupos
+                    // 🎯 REDUCCIÓN CRÍTICA: Bajamos el motor V8 interno de Chromium a 100MB 
+                   // para evitar que Render mate el contenedor al descargar el zip de Mongo
+                   // 🚀 CONTROL ESTRICTO DE RAM V8 (Fuerza a limpiar la RAM agresivamente)
+                    isProduction ? '--js-flags=--max-old-space-size=80' : '--js-flags=--max-old-space-size=4096',
+                    
+                    // 🚀 CAMBIO CLAVE 2: En local usa múltiples hilos de tu CPU. En Render usa solo uno para no sobrecargar.
                     // 🎯 EL ARGUMENTO SALVADOR CONTRA EL DETACHED FRAME:
                     // Fuerza a Chromium a procesar los scripts de WhatsApp en un solo hilo de CPU de forma secuencial,
                     // impidiendo que la máquina de Render congele el proceso y despegue la pestaña.
-                    '--single-process' 
+                    
+                    ...(isProduction ? ['--single-process'] : [])
 
                 ]
             }
