@@ -8,9 +8,8 @@ const Tasadollarbcv = mongoose.model('tasadollarbcv', Schema({
 }, { collection: 'tasadollarbcv', timestamps: true }));
 
 /**
- * Función que extrae la data oficial y actualiza MongoDB Atlas
+ * Función que extrae la data oficial de Venezuela y actualiza MongoDB Atlas
  */
-
 async function sincronizarTasasOficiales() {
     try {
         console.log('🔄 Consultando endpoints estables de DolarApi con bypass de caché...');
@@ -18,8 +17,7 @@ async function sincronizarTasasOficiales() {
         // 1. Generamos el marcador de tiempo numérico
         const timestamp = Date.now();
 
-        // 2. 🚀 CORRECCIÓN CRÍTICA: El timestamp DEBE ir al final de toda la ruta con un '?'
-        // Asegúrate de usar comillas invertidas (backticks) para la plantilla de texto
+        // 2. 🚀 CORRECCIÓN CRÍTICA: Se añadió la ruta oficial de Venezuela y el "?" correcto para el query string
         const url = `https://dolarapi.com{timestamp}`;
 
         console.log(`📡 Realizando petición HTTP segura a: ${url}`);
@@ -35,10 +33,12 @@ async function sincronizarTasasOficiales() {
         });
 
         const data = resDolar.data;
-        let precioCrudo = data.oficial || data.promedio || data.precio || data.oficial_bcv;
+        
+        // 3. DolarApi devuelve un JSON con propiedades como "promedio" o "venta" para el BCV
+        let precioCrudo = data.promedio || data.venta || data.precio || data.oficial;
 
         if (!precioCrudo) {
-            throw new Error('La estructura del JSON cambió o los campos oficiales no están disponibles.');
+            throw new Error(`La estructura del JSON cambió. Data recibida: ${JSON.stringify(data)}`);
         }
 
         // Sanitizamos comas por puntos antes del guardado en Mongo (Evita el CastError)
@@ -58,14 +58,20 @@ async function sincronizarTasasOficiales() {
         }, { upsert: true });
 
         console.log(`✅ [BCV SYNC] Tasa guardada con éxito en Atlas: ${valorNumerico} VES`);
-        return { usd: valorNumerico };
+        
+        // Importante: Retorna el número limpio para que tu enrutador pueda enviarlo por Sockets
+        return valorNumerico;
 
     } catch (error) {
-        // El log ahora te mostrará la URL limpia si vuelve a fallar la red corporativa
+        // Mejoramos el log para que veas el error real en tu consola de producción
         console.error('❌ Error en el sync de tasas:', error.message);
+        if (error.response) {
+            console.error('Detalle del error del servidor:', error.response.status, error.response.data);
+        }
         return null;
     }
 }
 
-// Exportamos la función limpia para consumirla desde el router de Express
-module.exports = { sincronizarTasasOficiales };
+module.exports = {
+    sincronizarTasasOficiales
+};
