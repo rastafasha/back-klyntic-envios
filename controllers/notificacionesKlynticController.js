@@ -167,7 +167,6 @@ const borrarTodasLasNotificacionesMedicas = async (req, res) => {
     }
 };
 
-
 const enviarRecordatoriosMasivos = async (req, res) => {
     try {
         const { recordatorios } = req.body;
@@ -177,20 +176,26 @@ const enviarRecordatoriosMasivos = async (req, res) => {
             return res.status(400).json({ status: 'error', message: 'Formato de datos inválido' });
         }
 
-        // 🧠 RESPUESTA INMEDIATA: Cerramos la conexión con Laravel en milisegundos
+        // 🧠 RESPUESTA INMEDIATA: Cerramos la conexión con Laravel en milisegundos para evitar Timeouts
         res.status(200).json({ status: 'ok', message: 'Procesando lote de notificaciones en Klyntic...' });
 
         console.log(`=== 📦 KLYNTIC BULK: Procesando lote de ${recordatorios.length} recordatorios ===`);
 
+        // Limpiamos la URL de Laravel para el reporte posterior
+        const urlBase = process.env.LARAVEL_API_URL;
+        const urlBaseLimpia = urlBase.endsWith('/') ? urlBase.slice(0, -1) : urlBase;
+
         // Procesamos la ráfaga de mensajes en segundo plano dentro de Node.js
         for (const item of recordatorios) {
-            const { doctor_id, telefono, mensaje } = item;
+            // Nota: Asegúrate de que Laravel te envíe el 'id' de la cita en cada item del lote
+            const { id, doctor_id, telefono, mensaje } = item; 
             const idDoctorStr = String(doctor_id);
 
             let clienteActivo = global.whatsappClients && global.whatsappClients[idDoctorStr];
             let estadoEnMemoria = global.whatsappStates && global.whatsappStates[idDoctorStr];
+
             // =========================================================================
-            // 🚀 AUTO-DESPERTAR CLOUD INTELIGENTE (Dentro del bucle de enviarRecordatoriosMasivos)
+            // 🚀 AUTO-DESPERTAR CLOUD INTELIGENTE
             // =========================================================================
             if (!clienteActivo) {
                 console.log(`🔍 [BULK AUTO-REVIVE] Consultorio ${idDoctorStr} no está en RAM. Buscando en MongoDB Atlas...`);
@@ -200,53 +205,44 @@ const enviarRecordatoriosMasivos = async (req, res) => {
                 if (consultorioDB && consultorioDB.whatsappStatus === 'CONECTADO') {
                     console.log(`🤖 [BULK AUTO-REVIVE] Sesión activa en Atlas. Levantando Puppeteer de forma segura...`);
 
-                    // 🚀 Ejecutamos el encendido nativo asíncrono
                     crearClienteWhatsApp(idDoctorStr);
 
-                    // 🚀 ESPERA DINÁMICA: Monitoreamos la RAM hasta que pase de INICIALIZANDO a CONECTADO
                     console.log(`⏳ Esperando la sincronización de Puppeteer en el entorno de Render...`);
 
                     await new Promise((resolve) => {
-                        let intentosMaximos = 12; // 12 intentos * 5 segundos = Hasta 60 segundos de margen máximo
+                        let intentosMaximos = 12; 
                         let contador = 0;
 
                         const verificarEstado = setInterval(() => {
                             contador++;
 
-                            // Jalamas las variables globales actualizadas segundo a segundo por crearClienteWhatsApp
                             const clienteListo = global.whatsappClients && global.whatsappClients[idDoctorStr];
                             const estadoListo = global.whatsappStates && global.whatsappStates[idDoctorStr]?.whatsappStatus === 'CONECTADO';
 
                             if (clienteListo && estadoListo) {
                                 console.log(`✅ [BULK AUTO-REVIVE] ¡Instancia operativa y en estado READY en el segundo ${contador * 5}!`);
                                 clearInterval(verificarEstado);
-                                resolve(true); // Rompe la promesa con éxito y continúa el envío
+                                resolve(true); 
                             } else if (contador >= intentosMaximos) {
                                 console.log(`❌ [BULK AUTO-REVIVE] Tiempo de espera límite alcanzado (60s). Chromium no respondió.`);
                                 clearInterval(verificarEstado);
-                                resolve(false); // Rompe la promesa por timeout
+                                resolve(false); 
                             } else {
-                                // Log informativo para saber en qué estado se encuentra atrapado Puppeteer
                                 const estadoActual = global.whatsappStates && global.whatsappStates[idDoctorStr]?.whatsappStatus;
                                 console.log(`⏳ [${contador}/12] Puppeteer se encuentra en estado: [${estadoActual || 'DESCONOCIDO'}] (${contador * 5}s)...`);
                             }
-                        }, 5000); // Revisa la RAM cada 5 segundos
+                        }, 5000); 
                     });
 
-                    // Volvemos a jalar las referencias globales recién creadas y listas para disparar el mensaje
                     clienteActivo = global.whatsappClients[idDoctorStr];
                     estadoEnMemoria = global.whatsappStates[idDoctorStr];
                 }
             }
 
-
-
             // =========================================================================
-            // ⚡ DISPARO SEGURO CON LA INSTANCIA YA RECUPERADA
+            // ⚡ DISPARO SEGURO CON LA INSTANCIA YA RECUPERADA Y REPORTE A LARAVEL
             // =========================================================================
-            // Evaluamos si logramos levantar la sesión (o si ya estaba lista)
             if (clienteActivo) {
-
                 let telefonoLimpio = telefono.replace(/\D/g, '');
                 if (telefonoLimpio.startsWith('0')) {
                     telefonoLimpio = '58' + telefonoLimpio.substring(1);
@@ -256,9 +252,19 @@ const enviarRecordatoriosMasivos = async (req, res) => {
                 }
 
                 try {
-                    // Disparo real directo a la instancia de Puppeteer
+                    // 1. Disparo real directo a la instancia de Puppeteer
                     await clienteActivo.sendMessage(telefonoLimpio, mensaje);
                     console.log(`[ÉXITO] Recordatorio enviado al paciente ${telefonoLimpio} desde el canal del Doctor ID: ${idDoctorStr}`);
+
+                    // 2. Reportamos de vuelta a Laravel que la cita se notificó (Solo si Laravel mandó el ID de la cita)
+                    if (id) {
+                        const urlUpdate = `${urlBaseLimpia}/api/appointments/update-cron-state/${id}`;
+                        await axios.post(urlUpdate, {}, {
+                            headers: { 'Authorization': `Bearer ${process.env.WEBHOOK_SECRET_TOKEN}` }
+                        });
+                        console.log(`🔄 Estado de cita ID ${id} actualizado en Laravel.`);
+                    }
+
                 } catch (sendError) {
                     console.error(`[FALLO NATIVO] Error al entregar mensaje en WhatsApp para ${telefonoLimpio}:`, sendError.message);
                 }
@@ -272,10 +278,13 @@ const enviarRecordatoriosMasivos = async (req, res) => {
             await new Promise(resolve => setTimeout(resolve, 3500));
         }
 
+        console.log(`=== 🏁 KLYNTIC BULK: Finalizado el procesamiento de todo el lote ===`);
+
     } catch (error) {
         console.error('❌ Error crítico en el bulk de notificaciones Klyntic:', error);
     }
 };
+
 
 
 const enviarNotificacionPaciente = async (req, res) => {

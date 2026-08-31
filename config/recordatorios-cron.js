@@ -19,20 +19,34 @@ async function ejecutarRecordatorios() {
     
     if (!process.env.LARAVEL_API_URL || !process.env.WEBHOOK_SECRET_TOKEN) {
         console.error('❌ ERROR CRÍTICO: Faltan variables de entorno esenciales.');
-        process.exit(1); // 🚀 CORRECCIÓN: Apaga con error para que Render te avise
+        process.exit(1);
     }
 
     let respuesta;
     try {
-        const urlLaravel = `${process.env.LARAVEL_API_URL}/api/appointments/cron-pendientes`;
+        const urlBase = process.env.LARAVEL_API_URL;
+        const urlBaseLimpia = urlBase.endsWith('/') ? urlBase.slice(0, -1) : urlBase;
+        const urlLaravel = `${urlBaseLimpia}/api/appointments/cron-pendientes`;
         
+        console.log('💤 Enviando señal para despertar al backend de Laravel...');
+        try {
+            await axios.get(urlBaseLimpia, { timeout: 8000 }); 
+        } catch (e) {
+            // Ignoramos errores aquí, solo queremos que Render empiece a encenderlo
+        }
+
+        console.log('⏳ Laravel se está encendiendo. Esperando 50 segundos antes de pedir las citas...');
+        await new Promise(resolve => setTimeout(resolve, 50000));
+
+        console.log('📡 Consultando citas pendientes en Laravel...');
         respuesta = await axios.get(urlLaravel, {
             headers: { 'Authorization': `Bearer ${process.env.WEBHOOK_SECRET_TOKEN}` }
         });
+
     } catch (apiError) {
         console.error('⚠️ Laravel devolvió un error al consultar citas:', apiError.message);
         console.log('💤 Cancelando iteración actual por falta de conexión válida.');
-        process.exit(0); // 🚀 CORRECCIÓN: Apaga el contenedor de inmediato de forma limpia
+        process.exit(0); 
     }
 
     try {
@@ -42,23 +56,50 @@ async function ejecutarRecordatorios() {
 
         if (citasProximas.length === 0) {
             console.log('💤 No hay citas médicas próximas con [cron_state = 1] para notificar.');
-            process.exit(0); // 🚀 CORRECCIÓN: Apaga el contenedor ya que no hay trabajo
+            process.exit(0); 
         }
 
         console.log(`📦 Se encontraron ${citasProximas.length} citas pendientes por procesar...`);
 
+        const urlBase = process.env.LARAVEL_API_URL;
+        const urlBaseLimpia = urlBase.endsWith('/') ? urlBase.slice(0, -1) : urlBase;
+
+        // 👇 BUCLE COMPLETADO PARA TU ARQUITECTURA DE MICROSERVICIO 👇
         for (const cita of citasProximas) {
-            // ... (Manten tu bucle for idéntico como lo tienes) ...
+            try {
+                console.log(`🔹 Microservicio procesando cita ID: ${cita.id}...`);
+                
+                // 1. Aquí colocas la lógica de envío de tu microservicio (ej. WhatsApp, SMS, Mail)
+                // Ejemplo: await tuLógicaDeEnvio(cita);
+                
+                // 2. Reportamos de vuelta a Laravel que la cita fue notificada con éxito
+                const urlUpdate = `${urlBaseLimpia}/api/appointments/update-cron-state/${cita.id}`;
+                
+                await axios.post(urlUpdate, {}, {
+                    headers: { 'Authorization': `Bearer ${process.env.WEBHOOK_SECRET_TOKEN}` }
+                });
+                
+                console.log(`✅ Cita ID ${cita.id} procesada y notificada a Laravel correctamente.`);
+
+            } catch (errorCita) {
+                console.error(`❌ Error al procesar o reportar la cita ${cita.id}:`, errorCita.message);
+                // Si una cita falla, usamos 'continue' para saltar a la siguiente sin romper el flujo completo
+                continue; 
+            }
         }
+        // ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑
 
         console.log('🚀 [Klyntic Cron] Proceso terminado con éxito de forma limpia.');
-        process.exit(0); // 🚀 CORRECCIÓN: Éxito total. Matamos el proceso para que Render corte la factura.
+        process.exit(0); 
 
     } catch (error) {
         console.error('❌ Error general inesperado en el extractor médico:', error.message);
-        process.exit(1); // Apaga informando el error inesperado
+        process.exit(1); 
     }
 }
+
+
+
 
 
 function formatearTelefono(tel) {

@@ -13,7 +13,7 @@ const { validarJWT } = require('../middlewares/validar-jwt');
 const { check } = require('express-validator');
 const { validarCampos } = require('../middlewares/validar-campos');
 
-// importamos multer, agregado por José Prados
+
 const multer = require('multer');
 // Configurar Multer
 const storage = multer.memoryStorage();
