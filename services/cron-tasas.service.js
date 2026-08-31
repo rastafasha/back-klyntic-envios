@@ -1,11 +1,7 @@
 const axios = require('axios');
 const mongoose = require('mongoose');
 const Schema = mongoose.Schema;
-
-// Definición de tu modelo Mongoose
-const Tasadollarbcv = mongoose.model('tasadollarbcv', Schema({
-    precio_dia: { type: Number, required: true, default: 0 }
-}, { collection: 'tasadollarbcv', timestamps: true }));
+const Tasadollarbcv = require('../models/tasadollarbcv'); 
 
 /**
  * Función que extrae la data oficial de Venezuela y actualiza MongoDB Atlas
@@ -14,10 +10,9 @@ async function sincronizarTasasOficiales() {
     try {
         console.log('🔄 Consultando endpoints estables de DolarApi con bypass de caché...');
 
-        // 1. Generamos el marcador de tiempo numérico
         const timestamp = Date.now();
-
-        // 2. 🚀 CORRECCIÓN CRÍTICA: Se añadió la ruta oficial de Venezuela y el "?" correcto para el query string
+        
+        // 🚀 RUTA OFICIAL CORRECTA PARA VENEZUELA (DolarApi oficial)
         const url = `https://dolarapi.com{timestamp}`;
 
         console.log(`📡 Realizando petición HTTP segura a: ${url}`);
@@ -26,22 +21,20 @@ async function sincronizarTasasOficiales() {
             headers: {
                 'Cache-Control': 'no-cache, no-store, must-revalidate',
                 'Pragma': 'no-cache',
-                'Expires': '0',
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
             },
             timeout: 8000
         });
 
         const data = resDolar.data;
         
-        // 3. DolarApi devuelve un JSON con propiedades como "promedio" o "venta" para el BCV
+        // DolarApi para Venezuela devuelve propiedades como "promedio" o "venta" [1]
         let precioCrudo = data.promedio || data.venta || data.precio || data.oficial;
 
         if (!precioCrudo) {
             throw new Error(`La estructura del JSON cambió. Data recibida: ${JSON.stringify(data)}`);
         }
 
-        // Sanitizamos comas por puntos antes del guardado en Mongo (Evita el CastError)
         if (typeof precioCrudo === 'string') {
             precioCrudo = precioCrudo.replace(',', '.');
         }
@@ -52,22 +45,19 @@ async function sincronizarTasasOficiales() {
             throw new Error(`El valor procesado no es válido: ${valorNumerico}`);
         }
 
-        // Actualización atómica en tu colección única de Atlas
+        // 2. 🎯 ACTUALIZACIÓN ATÓMICA EN MONGO ATLAS USANDO EL MODELO IMPORTADO
+        // Al dejar el primer objeto vacío {}, Mongoose buscará el único documento que existe y lo actualizará.
+        // Si la base de datos está vacía, el { upsert: true } creará el primer registro automáticamente.
         await Tasadollarbcv.updateOne({}, { 
             $set: { precio_dia: valorNumerico } 
         }, { upsert: true });
 
         console.log(`✅ [BCV SYNC] Tasa guardada con éxito en Atlas: ${valorNumerico} VES`);
         
-        // Importante: Retorna el número limpio para que tu enrutador pueda enviarlo por Sockets
         return valorNumerico;
 
     } catch (error) {
-        // Mejoramos el log para que veas el error real en tu consola de producción
         console.error('❌ Error en el sync de tasas:', error.message);
-        if (error.response) {
-            console.error('Detalle del error del servidor:', error.response.status, error.response.data);
-        }
         return null;
     }
 }
