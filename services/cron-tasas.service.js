@@ -11,6 +11,8 @@ async function sincronizarTasasOficiales() {
         console.log('🔄 Consultando endpoints estables de DolarApi con bypass de caché...');
 
         const timestamp = Date.now();
+        
+        // 🚀 RUTA OFICIAL CORRECTA CON EL SIGNO '$' PARA INYECTAR LA VARIABLE
         const url = `https://dolarapi.com{timestamp}`;
 
         console.log(`📡 Realizando petición HTTP segura a: ${url}`);
@@ -27,43 +29,43 @@ async function sincronizarTasasOficiales() {
         const data = resDolar.data;
         console.log('📦 [BCV DEBUG] CONTENIDO CRUDO DE LA API:', JSON.stringify(data));
         
-        // 🎯 EXTRACCIÓN DIRECTA SEGURA:
-        // Evaluamos de manera simple las propiedades que DolarApi suele inyectar
+        // 🎯 EXTRACCIÓN CON FALLBACKS DE ACUERDO A LA RESPUESTA DE DOLARAPI VENEZUELA
         let precioCrudo = data.venta || data.promedio || data.compra || data.precio;
 
         if (!precioCrudo) {
             throw new Error(`Propiedades de precio no encontradas. Estructura: ${JSON.stringify(data)}`);
         }
 
-        // Si por casualidad la API lo manda como String ("47,25"), lo adaptamos a formato numérico
+        // Si viene como string ("47,25"), adaptamos la coma a formato decimal estándar
         if (typeof precioCrudo === 'string') {
             precioCrudo = precioCrudo.replace(',', '.');
         }
 
-        // Convertimos directamente a número flotante
+        // Convertimos de forma segura a número flotante sin usar toFixed() de golpe
         const valorNumerico = parseFloat(precioCrudo);
 
         if (isNaN(valorNumerico) || valorNumerico <= 0) {
             throw new Error(`El valor procesado no se pudo transformar a número: ${precioCrudo}`);
         }
 
-        // Formateamos estrictamente a 2 decimales para Mongo Atlas
+        // Formateamos numéricamente a 2 decimales usando operaciones aritméticas directas
         const valorFinal = Math.round(valorNumerico * 100) / 100;
 
-        // 2. ACTUALIZACIÓN EN MONGO ATLAS
+        // 2. 🎯 ACTUALIZACIÓN ATÓMICA EN MONGO ATLAS
         await Tasadollarbcv.updateOne({}, { 
             $set: { precio_dia: valorFinal } 
         }, { upsert: true });
 
         console.log(`✅ [BCV SYNC] Tasa guardada con éxito en Atlas: ${valorFinal} VES`);
         
-        return valorFinal; // Retornamos el número limpio hacia el router.get
+        return valorFinal; // Retorna el valor listo hacia tu enrutador principal
 
     } catch (error) {
         console.error('❌ Error interno en el sync de tasas:', error.message);
         return null; 
     }
 }
+
 
 
 

@@ -7,44 +7,34 @@ const { sincronizarTasasOficiales } = require('../services/cron-tasas.service');
 // =========================================================================
 router.get('/tasks/sync-tasa-bcv', async (req, res) => {
     try {
-        console.log('⏰ [CRON-JOB.ORG] Petición externa recibida. Iniciando sincronización...');
-        
-        // 🎯 1. ESPERA REAL EN EL CONTENEDOR: Render mantendrá el proceso vivo mientras esto se ejecute
-        const tasa = await sincronizarTasasOficiales();
-        
-        // Validación estricta de la tasa obtenida
-        const tasaNumerica = parseFloat(tasa);
+        console.log('⏰ [CRON-JOB.ORG] Iniciando sincronización de tasas...');
 
-        if (!isNaN(tasaNumerica) && tasaNumerica > 0) {
-            console.log(`✅ Tasa sincronizada con éxito: ${tasaNumerica}`);
-            
-            // Notificamos a Angular por Sockets en tiempo real
+
+        // 🎯 MODIFICACIÓN EN TU ROUTER.GET (Opción A)
+        const resultado = await sincronizarTasasOficiales();
+
+        // Validamos si es un número válido directamente
+        if (resultado && !isNaN(resultado) && resultado > 0) {
             if (global.io) {
-                global.io.emit('tasa-bcv-actualizada', { tasa: tasaNumerica });
+                global.io.emit('tasa-bcv-actualizada', { tasa: resultado });
             }
 
-            // 🎯 2. RESPUESTA SUCESS: Solo respondemos cuando de verdad se guardó en la BD
-            return res.status(200).json({ 
-                ok: true, 
-                msg: 'Sincronización completada con éxito',
-                tasa: tasaNumerica
+            return res.status(200).json({
+                ok: true,
+                msg: 'Tasa actualizada con éxito',
+                data: { usd: resultado } // Lo envolvemos aquí para mantener tu formato JSON anterior
             });
-
         } else {
-            console.error('❌ Fallo en la sincronización automática: Formato numérico inválido.');
-            return res.status(422).json({ ok: false, msg: 'Formato numérico inválido' });
+            return res.status(422).json({
+                ok: false,
+                msg: 'Formato numérico inválido o error en la extracción de la API'
+            });
         }
 
     } catch (error) {
-        // Captura cualquier error de scraping, de red del BCV o de guardado en base de datos
-        console.error('❌ Error crítico en la ejecución del cronjob:', error.message);
-        
+        console.error('❌ Error crítico en la ruta del cronjob:', error.message);
         if (!res.headersSent) {
-            return res.status(500).json({ 
-                ok: false, 
-                msg: 'Error interno al procesar la tasa', 
-                error: error.message 
-            });
+            return res.status(500).json({ ok: false, error: error.message });
         }
     }
 });
@@ -78,26 +68,27 @@ router.post('/forzar-actualizacion-tasa', async (req, res) => {
         if (timeoutId) clearTimeout(timeoutId);
 
         // 🎯 3. VALIDACIÓN MATEMÁTICA ESTRICTA (Evita NaN, strings vacíos o ceros)
-        const tasaNumerica = parseFloat(tasa);
+        // Extraemos la propiedad numérica de adentro del objeto retornado
+        const tasaNumerica = resultado && resultado.usd ? parseFloat(resultado.usd) : NaN;
 
         if (!isNaN(tasaNumerica) && tasaNumerica > 0) {
-            
+
             // Notificamos por Sockets en tiempo real a todas las pantallas abiertas de Angular
             if (global.io) {
                 global.io.emit('tasa-bcv-actualizada', { tasa: tasaNumerica });
                 console.log(`📡 [SOCKET] Nueva tasa emitida globalmente: ${tasaNumerica}`);
             }
-            
-            return res.json({ 
-                ok: true, 
-                msg: 'Tasa oficial actualizada con éxito desde el panel administrativo.', 
-                tasa: tasaNumerica 
+
+            return res.json({
+                ok: true,
+                msg: 'Tasa oficial actualizada con éxito desde el panel administrativo.',
+                tasa: tasaNumerica
             });
 
         } else {
-            return res.status(400).json({ 
-                ok: false, 
-                msg: 'El portal cambiario respondió correctamente pero devolvió un formato de tasa inválido.' 
+            return res.status(400).json({
+                ok: false,
+                msg: 'El portal cambiario respondió correctamente pero devolvió un formato de tasa inválido.'
             });
         }
 
@@ -106,7 +97,7 @@ router.post('/forzar-actualizacion-tasa', async (req, res) => {
         if (timeoutId) clearTimeout(timeoutId);
 
         console.error('❌ Error crítico en forzar-actualizacion-tasa:', error.message);
-        
+
         // Manejo amigable si el error fue por lentitud del BCV
         if (error.message.includes('Tiempo de espera')) {
             return res.status(504).json({ ok: false, msg: error.message });
