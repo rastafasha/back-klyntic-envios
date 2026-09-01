@@ -12,7 +12,7 @@ async function sincronizarTasasOficiales() {
 
         const timestamp = Date.now();
         
-        // 🚀 RUTA OFICIAL CORRECTA PARA VENEZUELA (DolarApi oficial)
+        // 🚀 RUTA OFICIAL CORRECTA PARA EL DÓLAR BCV EN VENEZUELA
         const url = `https://dolarapi.com{timestamp}`;
 
         console.log(`📡 Realizando petición HTTP segura a: ${url}`);
@@ -28,11 +28,11 @@ async function sincronizarTasasOficiales() {
 
         const data = resDolar.data;
         
-        // DolarApi para Venezuela devuelve propiedades como "promedio" o "venta" [1]
+        // 🔍 DolarApi para un solo endpoint devuelve las propiedades directas (usualmente "promedio" o "venta")
         let precioCrudo = data.promedio || data.venta || data.precio || data.oficial;
 
         if (!precioCrudo) {
-            throw new Error(`La estructura del JSON cambió. Data recibida: ${JSON.stringify(data)}`);
+            throw new Error(`La estructura del JSON cambió o el endpoint falló. Data recibida: ${JSON.stringify(data)}`);
         }
 
         if (typeof precioCrudo === 'string') {
@@ -45,9 +45,7 @@ async function sincronizarTasasOficiales() {
             throw new Error(`El valor procesado no es válido: ${valorNumerico}`);
         }
 
-        // 2. 🎯 ACTUALIZACIÓN ATÓMICA EN MONGO ATLAS USANDO EL MODELO IMPORTADO
-        // Al dejar el primer objeto vacío {}, Mongoose buscará el único documento que existe y lo actualizará.
-        // Si la base de datos está vacía, el { upsert: true } creará el primer registro automáticamente.
+        // 2. 🎯 ACTUALIZACIÓN ATÓMICA EN MONGO ATLAS
         await Tasadollarbcv.updateOne({}, { 
             $set: { precio_dia: valorNumerico } 
         }, { upsert: true });
@@ -57,10 +55,12 @@ async function sincronizarTasasOficiales() {
         return valorNumerico;
 
     } catch (error) {
+        // Captura errores de red, respuestas HTTP incorrectas (404/500) o fallos de sintaxis previa
         console.error('❌ Error en el sync de tasas:', error.message);
         return null;
     }
 }
+
 
 module.exports = {
     sincronizarTasasOficiales

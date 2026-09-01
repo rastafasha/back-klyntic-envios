@@ -7,44 +7,44 @@ const { sincronizarTasasOficiales } = require('../services/cron-tasas.service');
 // =========================================================================
 router.get('/tasks/sync-tasa-bcv', async (req, res) => {
     try {
-        console.log('⏰ [CRON-JOB.ORG] Petición externa recibida. Liberando conexión inmediatamente...');
+        console.log('⏰ [CRON-JOB.ORG] Petición externa recibida. Iniciando sincronización...');
         
-        // 🎯 1. RESPUESTA INMEDIATA: Evita el Timeout de 30 segundos en cron-job.org
-        res.status(202).json({ 
-            ok: true, 
-            msg: 'Petición aceptada. Sincronizando la tasa en segundo plano...' 
-        });
+        // 🎯 1. ESPERA REAL EN EL CONTENEDOR: Render mantendrá el proceso vivo mientras esto se ejecute
+        const tasa = await sincronizarTasasOficiales();
+        
+        // Validación estricta de la tasa obtenida
+        const tasaNumerica = parseFloat(tasa);
 
-        // 🎯 2. PROCESAMIENTO SEGURO EN SEGUNDO PLANO (Aislado de la respuesta HTTP)
-        // Usamos una función autoejecutable asíncrona (IIFE) para un manejo de errores robusto
-        (async () => {
-            try {
-                const tasa = await sincronizarTasasOficiales();
-                
-                // Validación estricta que añadimos en la ruta anterior
-                const tasaNumerica = parseFloat(tasa);
-
-                if (!isNaN(tasaNumerica) && tasaNumerica > 0) {
-                    console.log(`✅ Tasa sincronizada con éxito en segundo plano: ${tasaNumerica}`);
-                    
-                    // Notificamos a Angular por Sockets en tiempo real
-                    if (global.io) {
-                        global.io.emit('tasa-bcv-actualizada', { tasa: tasaNumerica });
-                    }
-                } else {
-                    console.error('❌ Fallo en la sincronización automática: Formato numérico inválido.');
-                }
-            } catch (asyncErr) {
-                // 🚀 AQUÍ ESTÁ EL BLINDAJE: Cualquier fallo asíncrono muere aquí y no tumba Render
-                console.error('❌ Error crítico ejecutando la sincronización en segundo plano:', asyncErr.message);
+        if (!isNaN(tasaNumerica) && tasaNumerica > 0) {
+            console.log(`✅ Tasa sincronizada con éxito: ${tasaNumerica}`);
+            
+            // Notificamos a Angular por Sockets en tiempo real
+            if (global.io) {
+                global.io.emit('tasa-bcv-actualizada', { tasa: tasaNumerica });
             }
-        })(); // El () final ejecuta la función en paralelo de inmediato
+
+            // 🎯 2. RESPUESTA SUCESS: Solo respondemos cuando de verdad se guardó en la BD
+            return res.status(200).json({ 
+                ok: true, 
+                msg: 'Sincronización completada con éxito',
+                tasa: tasaNumerica
+            });
+
+        } else {
+            console.error('❌ Fallo en la sincronización automática: Formato numérico inválido.');
+            return res.status(422).json({ ok: false, msg: 'Formato numérico inválido' });
+        }
 
     } catch (error) {
-        // Este catch solo captura errores si res.status(202) llega a fallar catastróficamente
-        console.error('❌ Error crítico síncrono en la ruta del cronjob:', error.message);
+        // Captura cualquier error de scraping, de red del BCV o de guardado en base de datos
+        console.error('❌ Error crítico en la ejecución del cronjob:', error.message);
+        
         if (!res.headersSent) {
-            return res.status(500).json({ ok: false, error: error.message });
+            return res.status(500).json({ 
+                ok: false, 
+                msg: 'Error interno al procesar la tasa', 
+                error: error.message 
+            });
         }
     }
 });
