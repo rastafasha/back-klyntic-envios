@@ -11,8 +11,6 @@ async function sincronizarTasasOficiales() {
         console.log('🔄 Consultando endpoints estables de DolarApi con bypass de caché...');
 
         const timestamp = Date.now();
-        
-        // 🚀 RUTA OFICIAL CORRECTA PARA EL DÓLAR BCV EN VENEZUELA
         const url = `https://dolarapi.com{timestamp}`;
 
         console.log(`📡 Realizando petición HTTP segura a: ${url}`);
@@ -27,39 +25,42 @@ async function sincronizarTasasOficiales() {
         });
 
         const data = resDolar.data;
+        console.log('📦 JSON crudo recibido de DolarApi:', JSON.stringify(data));
         
-        // 🔍 DolarApi para un solo endpoint devuelve las propiedades directas (usualmente "promedio" o "venta")
-        let precioCrudo = data.promedio || data.venta || data.precio || data.oficial;
+        // 🎯 MAPEO CORREGIDO: DolarApi Venezuela usa "venta" o "compra" para el valor numérico
+        let precioCrudo = data.venta || data.compra || data.promedio;
 
         if (!precioCrudo) {
-            throw new Error(`La estructura del JSON cambió o el endpoint falló. Data recibida: ${JSON.stringify(data)}`);
+            throw new Error(`La estructura del JSON cambió. No se encontró venta ni compra. Data: ${JSON.stringify(data)}`);
         }
 
+        // Si viene como string con comas, lo limpiamos. Si es un número pasa directo
         if (typeof precioCrudo === 'string') {
             precioCrudo = precioCrudo.replace(',', '.');
         }
 
-        const valorNumerico = parseFloat(Number(precioCrudo).toFixed(2));
+        // Convertimos de forma segura a flotante con dos decimales
+        const valorNumerico = parseFloat(parseFloat(precioCrudo).toFixed(2));
 
         if (isNaN(valorNumerico) || valorNumerico <= 0) {
-            throw new Error(`El valor procesado no es válido: ${valorNumerico}`);
+            throw new Error(`El valor procesado no es válido numéricamente: ${valorNumerico}`);
         }
 
-        // 2. 🎯 ACTUALIZACIÓN ATÓMICA EN MONGO ATLAS
+        // 2. ACTUALIZACIÓN ATÓMICA EN MONGO ATLAS
         await Tasadollarbcv.updateOne({}, { 
             $set: { precio_dia: valorNumerico } 
         }, { upsert: true });
 
         console.log(`✅ [BCV SYNC] Tasa guardada con éxito en Atlas: ${valorNumerico} VES`);
         
-        return valorNumerico;
+        return valorNumerico; // Retorna el número real hacia la ruta principal
 
     } catch (error) {
-        // Captura errores de red, respuestas HTTP incorrectas (404/500) o fallos de sintaxis previa
-        console.error('❌ Error en el sync de tasas:', error.message);
-        return null;
+        console.error('❌ Error interno en el sync de tasas:', error.message);
+        return null; // Si cae aquí, la ruta principal arrojará el error controlado
     }
 }
+
 
 
 module.exports = {
