@@ -3,21 +3,20 @@ const mongoose = require('mongoose');
 const Schema = mongoose.Schema;
 const Tasadollarbcv = require('../models/tasadollarbcv'); 
 
+
 /**
- * Función que extrae la data oficial de Venezuela y actualiza MongoDB Atlas
+ * Función que extrae la data oficial de USD y EUR y actualiza MongoDB Atlas
  */
 async function sincronizarTasasOficiales() {
     try {
-        console.log('🔄 Consultando endpoints estables de DolarApi con bypass de caché...');
+        console.log('🔄 Consultando tasas oficiales globales desde Exchangerate-API...');
 
-        const timestamp = Date.now();
-        
-        // 🚀 RUTA OFICIAL CORRECTA CON EL SIGNO '$' PARA INYECTAR LA VARIABLE
-        const url = `https://dolarapi.com{timestamp}`;
+        // 🚀 URL COMPLETA Y FIJA DIRECTA DE DATOS
+        const url = 'https://er-api.com';
 
-        console.log(`📡 Realizando petición HTTP segura a: ${url}`);
+        console.log('📡 Realizando petición HTTP segura a: ' + url);
 
-        const resDolar = await axios.get(url, {
+        const response = await axios.get(url, {
             headers: {
                 'Cache-Control': 'no-cache, no-store, must-revalidate',
                 'Pragma': 'no-cache',
@@ -26,45 +25,37 @@ async function sincronizarTasasOficiales() {
             timeout: 8000
         });
 
-        const data = resDolar.data;
-        console.log('📦 [BCV DEBUG] CONTENIDO CRUDO DE LA API:', JSON.stringify(data));
-        
-        // 🎯 EXTRACCIÓN CON FALLBACKS DE ACUERDO A LA RESPUESTA DE DOLARAPI VENEZUELA
-        let precioCrudo = data.venta || data.promedio || data.compra || data.precio;
+        const rates = response.data?.rates;
 
-        if (!precioCrudo) {
-            throw new Error(`Propiedades de precio no encontradas. Estructura: ${JSON.stringify(data)}`);
+        if (!rates || !rates.USD || !rates.EUR) {
+            throw new Error('La estructura financiera global no devolvió los pares de conversión.');
         }
 
-        // Si viene como string ("47,25"), adaptamos la coma a formato decimal estándar
-        if (typeof precioCrudo === 'string') {
-            precioCrudo = precioCrudo.replace(',', '.');
+        // Inversión matemática para obtener el valor en Bolívares
+        const valorDolar = Math.round((1 / parseFloat(rates.USD)) * 100) / 100;
+        const valorEuro = Math.round((1 / parseFloat(rates.EUR)) * 100) / 100;
+
+        console.log(`[Conversión Global Exitosa] USD: ${valorDolar} VES | EUR: ${valorEuro} VES`);
+
+        if (isNaN(valorDolar) || isNaN(valorEuro) || valorDolar <= 0 || valorEuro <= 0) {
+            throw new Error('El cálculo matemático arrojó valores inválidos.');
         }
 
-        // Convertimos de forma segura a número flotante sin usar toFixed() de golpe
-        const valorNumerico = parseFloat(precioCrudo);
+        // Actualización en tu base de datos de MongoDB Atlas
+        await Tasadollarbcv.updateOne({}, { $set: { precio_dia: valorDolar } }, { upsert: true });
 
-        if (isNaN(valorNumerico) || valorNumerico <= 0) {
-            throw new Error(`El valor procesado no se pudo transformar a número: ${precioCrudo}`);
+        if (typeof Tasaeurobcv !== 'undefined') {
+            await Tasaeurobcv.updateOne({}, { $set: { precio_dia: valorEuro } }, { upsert: true });
         }
 
-        // Formateamos numéricamente a 2 decimales usando operaciones aritméticas directas
-        const valorFinal = Math.round(valorNumerico * 100) / 100;
-
-        // 2. 🎯 ACTUALIZACIÓN ATÓMICA EN MONGO ATLAS
-        await Tasadollarbcv.updateOne({}, { 
-            $set: { precio_dia: valorFinal } 
-        }, { upsert: true });
-
-        console.log(`✅ [BCV SYNC] Tasa guardada con éxito en Atlas: ${valorFinal} VES`);
-        
-        return valorFinal; // Retorna el valor listo hacia tu enrutador principal
+        return { usd: valorDolar, eur: valorEuro };
 
     } catch (error) {
-        console.error('❌ Error interno en el sync de tasas:', error.message);
+        console.error('❌ Error en el sync automático de tasas:', error.message);
         return null; 
     }
 }
+
 
 
 
