@@ -9,12 +9,19 @@ const Tasadollarbcv = require('../models/tasadollarbcv');
  */
 async function sincronizarTasasOficiales() {
     try {
-        console.log('🔄 Consultando tasas oficiales globales desde Exchangerate-API...');
+        console.log('🔄 Consultando tasas oficiales globales desde ExchangeRate-API (v6)...');
 
-        // 🚀 URL COMPLETA Y CORRECTA (Moneda base: USD)
-        const url = 'https://er-api.com';
+        // 🔥 EXTRAEMOS LA KEY DE FORMA SEGURA DESDE LAS VARIABLES DE ENTORNO (.env)
+        const apiKey = process.env.EXCHANGE_RATE_KEY;
 
-        console.log('📡 Realizando petición HTTP segura a: ' + url);
+        if (!apiKey) {
+            throw new Error('La variable de entorno EXCHANGE_RATE_KEY no está configurada.');
+        }
+
+        // 🚀 CONCATENAMOS LA URL DINÁMICAMENTE USANDO LA VARIABLE SEGURA
+        const url = `https://exchangerate-api.com{apiKey}/latest/USD`;
+
+        console.log('📡 Realizando petición HTTP segura a un endpoint autenticado (v6)...');
 
         const response = await axios.get(url, {
             headers: {
@@ -25,27 +32,24 @@ async function sincronizarTasasOficiales() {
             timeout: 8000
         });
 
-        const rates = response.data?.rates;
+        // Sincronizado con la documentación v6: conversion_rates
+        const rates = response.data?.conversion_rates;
 
-        // 🔥 Validamos que contenga la moneda de Venezuela (VES) y el Euro (EUR)
         if (!rates || !rates.VES || !rates.EUR) {
-            throw new Error('La estructura financiera global no devolvió los pares de conversión para VES o EUR.');
+            throw new Error('La estructura financiera v6 no devolvió los pares de conversión para VES o EUR.');
         }
 
-        // 🔥 ¡CORRECCIÓN MATEMÁTICA! 
-        // La API ya viene en base USD, por lo que rates.VES es directamente el precio del dólar en bolívares.
+        // Conversión matemática exacta basada en USD
         const valorDolar = Math.round(parseFloat(rates.VES) * 100) / 100;
-        
-        // Para el euro, dividimos la tasa de VES entre la tasa de EUR para obtener cuántos bolívares vale un euro.
         const valorEuro = Math.round((parseFloat(rates.VES) / parseFloat(rates.EUR)) * 100) / 100;
 
-        console.log(`[Conversión Global Exitosa] USD: ${valorDolar} VES | EUR: ${valorEuro} VES`);
+        console.log(`[Conversión v6 Exitosa] USD: ${valorDolar} VES | EUR: ${valorEuro} VES`);
 
         if (isNaN(valorDolar) || isNaN(valorEuro) || valorDolar <= 0 || valorEuro <= 0) {
             throw new Error('El cálculo matemático arrojó valores inválidos.');
         }
 
-        // Actualización en tu base de datos de MongoDB Atlas
+        // Actualización automática en tu base de datos de MongoDB Atlas
         await Tasadollarbcv.updateOne({}, { $set: { precio_dia: valorDolar } }, { upsert: true });
 
         if (typeof Tasaeurobcv !== 'undefined') {
@@ -59,6 +63,9 @@ async function sincronizarTasasOficiales() {
         return null; 
     }
 }
+
+
+
 
 
 
