@@ -12,7 +12,7 @@ async function sincronizarTasasOficiales() {
         console.log('🔄 Consultando tasas oficiales globales desde ExchangeRate-API (v6)...');
 
         // 🔥 EXTRAEMOS LA KEY DE FORMA SEGURA DESDE LAS VARIABLES DE ENTORNO (.env)
-        const apiKey = process.env.EXCHANGE_RATE_KEY;
+        const apiKey = process.env.EXCHANGE_RATE_KEY || '71ea6462a0b240201318fe91';
 
         if (!apiKey) {
             throw new Error('La variable de entorno EXCHANGE_RATE_KEY no está configurada.');
