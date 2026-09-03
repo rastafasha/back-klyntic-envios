@@ -3,41 +3,40 @@ const router = Router();
 const { sincronizarTasasOficiales } = require('../services/cron-tasas.service');
 
 // =========================================================================
-// ⏰ 1. ENDPOINT AUTOMÁTICO PARA CRON-JOB.ORG (Método GET Obligatorio)
+// ⏰ 1. ENDPOINT AUTOMÁTICO PARA CRON-JOB.ORG (Método GET)
 // =========================================================================
 router.get('/tasks/sync-tasa-bcv', async (req, res) => {
     try {
-        console.log('⏰ [CRON-JOB.ORG] Iniciando sincronización de tasas...');
+        console.log('⏰ [CRON-JOB.ORG] Iniciando sincronización automática...');
 
-        // 1. Respondemos de inmediato a cronjob.org para evitar el Timeout (Menos de 50ms)
+        // 1. Respondemos de inmediato a cronjob.org (Evita el Timeout de 30s)
         res.status(200).json({
             ok: true,
-            msg: 'Sincronización iniciada en segundo plano de manera segura.'
+            msg: 'Sincronización automática iniciada en segundo plano.'
         });
 
-        // 2. Ejecutamos el proceso pesado de forma asíncrona sin bloquear la respuesta HTTP
+        // 2. El servidor Starter procesa la API y la Base de Datos en segundo plano
         sincronizarTasasOficiales()
-            .then(resultado => {
-                // Validamos que el objeto contenga las propiedades calculadas de la v6
-                if (resultado && resultado.usd && !isNaN(resultado.usd) && resultado.usd > 0) {
-                    
-                    // Emitimos por Socket.io a tus clientes en tiempo real
+            .then(tasa => {
+                // ✅ VALIDACIÓN CORRECTA: Leemos .usd del objeto retornado por la v6
+                const tasaNumerica = tasa && tasa.usd ? parseFloat(tasa.usd) : NaN;
+
+                if (!isNaN(tasaNumerica) && tasaNumerica > 0) {
+                    // Notificación en tiempo real a las pantallas de Angular
                     if (global.io) {
-                        global.io.emit('tasa-bcv-actualizada', { tasa: resultado.usd });
-                        global.io.emit('tasa-euro-actualizada', { tasa: resultado.eur }); // Opcional por si usas euros
+                        global.io.emit('tasa-bcv-actualizada', { tasa: tasaNumerica });
                     }
-                    console.log('✅ [CRON] Proceso e hilos de sockets completados con éxito.');
+                    console.log(`✅ [CRON] Base de datos y Sockets actualizados con éxito: ${tasaNumerica} VES`);
                 } else {
-                    console.error('⚠️ [CRON] La función devolvió datos inválidos o vacíos.');
+                    console.error('⚠️ [CRON] La API respondió pero el formato de tasa.usd es inválido.');
                 }
             })
             .catch(err => {
-                console.error('❌ [CRON] Falló la promesa asíncrona de tasas:', err.message);
+                console.error('❌ [CRON] Falló la promesa de sincronización en segundo plano:', err.message);
             });
 
     } catch (error) {
-        console.error('❌ Error crítico en la ruta del cronjob:', error.message);
-        // Protección por si ocurre un error síncrono antes de enviar el status 200
+        console.error('❌ Error crítico estructural en la ruta del cronjob:', error.message);
         if (!res.headersSent) {
             return res.status(500).json({ ok: false, error: error.message });
         }
@@ -51,37 +50,34 @@ router.get('/tasks/sync-tasa-bcv', async (req, res) => {
 // 🎛️ 2. ENDPOINT MANUAL PARA EL PANEL ADMINISTRATIVO (Método POST)
 // =========================================================================
 router.post('/forzar-actualizacion-tasa', async (req, res) => {
-    // 🎯 1. DECLARAMOS LA VARIABLE DEL TEMPORIZADOR FUERA PARA PODER LIMPIARLA
     let timeoutId = null;
 
     try {
         console.log('🎛️ [PANEL] Ejecutando sincronización manual de tasa solicitada por el usuario...');
 
-        // Promesa con tiempo límite
         const timeoutPromise = new Promise((_, reject) => {
             timeoutId = setTimeout(() => {
                 reject(new Error('Tiempo de espera agotado al conectar con el servidor cambiario'));
             }, 25000);
         });
 
-        // Corremos la sincronización y el temporizador en carrera
+        // Guardamos la respuesta en la variable "tasa"
         const tasa = await Promise.race([
             sincronizarTasasOficiales(),
             timeoutPromise
         ]);
 
-        // 🎯 2. LIMPIEZA INMEDIATA DE MEMORIA (Se cancela el reloj si el BCV respondió a tiempo)
         if (timeoutId) clearTimeout(timeoutId);
 
-        // 🎯 3. VALIDACIÓN MATEMÁTICA ESTRICTA (Evita NaN, strings vacíos o ceros)
-        // Extraemos la propiedad numérica de adentro del objeto retornado
-        const tasaNumerica = resultado && resultado.usd ? parseFloat(resultado.usd) : NaN;
+        // ✅ CORREGIDO: Usamos "tasa" en lugar de "resultado" que no existía
+        const tasaNumerica = tasa && tasa.usd ? parseFloat(tasa.usd) : NaN;
 
         if (!isNaN(tasaNumerica) && tasaNumerica > 0) {
 
-            // Notificamos por Sockets en tiempo real a todas las pantallas abiertas de Angular
             if (global.io) {
                 global.io.emit('tasa-bcv-actualizada', { tasa: tasaNumerica });
+                // Opcional por si quieres emitir el euro también:
+                if (tasa.eur) global.io.emit('tasa-euro-actualizada', { tasa: parseFloat(tasa.eur) });
                 console.log(`📡 [SOCKET] Nueva tasa emitida globalmente: ${tasaNumerica}`);
             }
 
@@ -94,17 +90,15 @@ router.post('/forzar-actualizacion-tasa', async (req, res) => {
         } else {
             return res.status(400).json({
                 ok: false,
-                msg: 'El portal cambiario respondió correctamente pero devolvió un formato de tasa inválido.'
+                msg: 'El portal cambiario respondió correctamente pero devolvió un formato de tasa inválido o vacío.'
             });
         }
 
     } catch (error) {
-        // 🎯 4. SEGURIDAD EN EL CATCH: Si la promesa dio timeout, también limpiamos el ID por si acaso
         if (timeoutId) clearTimeout(timeoutId);
 
         console.error('❌ Error crítico en forzar-actualizacion-tasa:', error.message);
 
-        // Manejo amigable si el error fue por lentitud del BCV
         if (error.message.includes('Tiempo de espera')) {
             return res.status(504).json({ ok: false, msg: error.message });
         }
@@ -112,6 +106,7 @@ router.post('/forzar-actualizacion-tasa', async (req, res) => {
         return res.status(500).json({ ok: false, error: error.message });
     }
 });
+
 
 
 
