@@ -12,14 +12,15 @@ async function sincronizarTasasOficiales() {
         console.log('🔄 Consultando tasas oficiales globales desde ExchangeRate-API (v6)...');
 
         // 🔥 EXTRAEMOS LA KEY DE FORMA SEGURA DESDE LAS VARIABLES DE ENTORNO (.env)
-        const apiKey = process.env.EXCHANGE_RATE_KEY || '71ea6462a0b240201318fe91';
+        const apiKey = process.env.EXCHANGE_RATE_KEY || '71ea6462a0b240201318fe91' ;
 
         if (!apiKey) {
             throw new Error('La variable de entorno EXCHANGE_RATE_KEY no está configurada.');
         }
 
         // 🚀 CONCATENAMOS LA URL DINÁMICAMENTE USANDO LA VARIABLE SEGURA
-        const url = `https://exchangerate-api.com/v6/{apiKey}/latest/USD`;
+        const url = `https://v6.exchangerate-api.com/v6/${apiKey}/latest/USD`;
+
 
         console.log('📡 Realizando petición HTTP segura a un endpoint autenticado (v6)...');
 
