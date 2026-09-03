@@ -19,7 +19,7 @@ async function sincronizarTasasOficiales() {
         }
 
         // 🚀 CONCATENAMOS LA URL DINÁMICAMENTE USANDO LA VARIABLE SEGURA
-        const url = `https://exchangerate-api.com{apiKey}/latest/USD`;
+        const url = `https://exchangerate-api.com/v6/{apiKey}/latest/USD`;
 
         console.log('📡 Realizando petición HTTP segura a un endpoint autenticado (v6)...');
 

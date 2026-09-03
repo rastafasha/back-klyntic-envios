@@ -9,35 +9,41 @@ router.get('/tasks/sync-tasa-bcv', async (req, res) => {
     try {
         console.log('⏰ [CRON-JOB.ORG] Iniciando sincronización de tasas...');
 
+        // 1. Respondemos de inmediato a cronjob.org para evitar el Timeout (Menos de 50ms)
+        res.status(200).json({
+            ok: true,
+            msg: 'Sincronización iniciada en segundo plano de manera segura.'
+        });
 
-        // 🎯 MODIFICACIÓN EN TU ROUTER.GET (Opción A)
-        const resultado = await sincronizarTasasOficiales();
-
-        // Validamos si es un número válido directamente
-        if (resultado && !isNaN(resultado) && resultado > 0) {
-            if (global.io) {
-                global.io.emit('tasa-bcv-actualizada', { tasa: resultado });
-            }
-
-            return res.status(200).json({
-                ok: true,
-                msg: 'Tasa actualizada con éxito',
-                data: { usd: resultado } // Lo envolvemos aquí para mantener tu formato JSON anterior
+        // 2. Ejecutamos el proceso pesado de forma asíncrona sin bloquear la respuesta HTTP
+        sincronizarTasasOficiales()
+            .then(resultado => {
+                // Validamos que el objeto contenga las propiedades calculadas de la v6
+                if (resultado && resultado.usd && !isNaN(resultado.usd) && resultado.usd > 0) {
+                    
+                    // Emitimos por Socket.io a tus clientes en tiempo real
+                    if (global.io) {
+                        global.io.emit('tasa-bcv-actualizada', { tasa: resultado.usd });
+                        global.io.emit('tasa-euro-actualizada', { tasa: resultado.eur }); // Opcional por si usas euros
+                    }
+                    console.log('✅ [CRON] Proceso e hilos de sockets completados con éxito.');
+                } else {
+                    console.error('⚠️ [CRON] La función devolvió datos inválidos o vacíos.');
+                }
+            })
+            .catch(err => {
+                console.error('❌ [CRON] Falló la promesa asíncrona de tasas:', err.message);
             });
-        } else {
-            return res.status(422).json({
-                ok: false,
-                msg: 'Formato numérico inválido o error en la extracción de la API'
-            });
-        }
 
     } catch (error) {
         console.error('❌ Error crítico en la ruta del cronjob:', error.message);
+        // Protección por si ocurre un error síncrono antes de enviar el status 200
         if (!res.headersSent) {
             return res.status(500).json({ ok: false, error: error.message });
         }
     }
 });
+
 
 
 
