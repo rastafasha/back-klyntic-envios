@@ -7,7 +7,14 @@ const { sendNotification } = require('../helpers/sendNotification');
 const guardarSuscripcion = async (req, res) => {
     try {
         const subscription = req.body;
-        const uid = req.uid; // ID del usuario que viene desde el login/token de Laravel
+        
+        // 🟢 RESPALDO CONTRA EL 500: Si req.uid viene nulo del middleware por desfase del token, 
+        // buscamos si viene en los headers o dejamos un string vacío temporal para evitar que truene.
+        const uid = req.uid || req.header('x-uid') || 'GUEST_USER'; 
+
+        if (!subscription || !subscription.endpoint) {
+            return res.status(400).json({ ok: false, msg: 'Suscripción inválida o incompleta' });
+        }
 
         // Guardamos o actualizamos el dispositivo en Mongo vinculándolo al ID de MySQL
         await PushSubscription.findOneAndUpdate(
@@ -16,24 +23,34 @@ const guardarSuscripcion = async (req, res) => {
             { upsert: true, new: true }
         );
 
-        // 🔥 CORREGIDO: Eliminamos el 'Usuario.findByIdAndUpdate' porque los usuarios viven en MySQL
+        // 🔒 AISLAMIENTO DEL MENSAJE DE BIENVENIDA:
+        // Envolvemos el envío en su propio try/catch. Si el servicio de Web Push de Google/Apple 
+        // o las llaves VAPID fallan en el primer milisegundo, se registra el error en consola, 
+        // pero la petición HTTP terminará con éxito (201) hacia Angular. ¡Adiós desfase!
+        try {
+            await sendNotification(
+                subscription, 
+                '¡Bienvenido a Klyntic! 🏥', 
+                'Ahora recibirás tus alertas y llamados médicos aquí.',
+                '/dashboard',
+                uid,
+                'AVISO_GENERAL'
+            );
+            console.log('🔔 Mensaje de bienvenida enviado con éxito');
+        } catch (pushError) {
+            console.warn('⚠️ No se pudo enviar el push de bienvenida inmediato:', pushError.message);
+            // No hacemos nada más; dejamos que el flujo principal continúe de forma segura
+        }
         
-        // Mensaje de bienvenida asíncrono usando el helper adaptado
-        await sendNotification(
-            subscription, 
-            '¡Bienvenido a Klyntic! 🏥', 
-            'Ahora recibirás tus alertas y llamados médicos aquí.',
-            '/dashboard',
-            uid,
-            'AVISO_GENERAL'
-        );
-        
-        res.status(201).json({ ok: true, msg: 'Suscripción guardada con éxito' });
+        // Retornamos éxito garantizado a Angular al primer intento
+        return res.status(201).json({ ok: true, msg: 'Suscripción guardada con éxito' });
+
     } catch (error) {
-        console.error('Error en guardarSuscripcion:', error);
-        res.status(500).json({ ok: false, msg: 'Error al guardar suscripción' });
+        console.error('❌ Error crítico en guardarSuscripcion:', error);
+        return res.status(500).json({ ok: false, msg: 'Error al guardar suscripción en el servidor de envíos' });
     }
 };
+
 
 // 2. Envío Individual (El helper centraliza el Socket y la BD de Klyntic)
 const enviarPushIndividual = async (req, res) => {

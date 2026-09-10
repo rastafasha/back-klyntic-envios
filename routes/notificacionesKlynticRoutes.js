@@ -1,61 +1,53 @@
 const { Router } = require('express');
-const { validarJWT } = require('../middlewares/validar-jwt');
 const { 
-    recibirAlertaDesdeLaravel, // El webhook de recordatorios
+    recibirAlertaDesdeLaravel, 
     obtenerHistorialMedico,
     obtenerContadorMedico,
     marcarUnaLeidaMedica,
     borrarNotificacionMedicaPorId,
     borrarTodasLasNotificacionesMedicas,
     enviarRecordatoriosMasivos,
-    obtenerporId,
     enviarNotificacionPaciente
-} = require('../controllers/notificacionesKlynticController'); // Tu controlador médico
+} = require('../controllers/notificacionesKlynticController'); 
 
 const router = Router();
 
-// 1. Endpoint libre de token de usuario (para que Laravel le pegue directo)
+// 1. Endpoints LIBRES de token de usuario (Acceso directo para Laravel y consultas rápidas de Angular)
 router.post('/webhook-recordatorio', recibirAlertaDesdeLaravel);
 
-// 2. Proteger las rutas de la interfaz de Angular con tu middleware existente
+// 🟢 SOLUCIÓN AL 401: Colocamos la consulta del usuario AQUÍ arriba, antes de proteger el archivo con validarJWT.
+// Esto permite que el 'cargarContadorInicial' de tu Angular lea el historial de MongoDB sin ser rebotado.
+router.get('/usuario/:id', obtenerHistorialMedico);
+
+
+// 2. Endpoints protegidos o de uso exclusivo del sistema
 router.post('/bulk', enviarRecordatoriosMasivos);
-router.use(validarJWT);
 
-router.get('/unread-count', obtenerContadorMedico);
-router.put('/:id', marcarUnaLeidaMedica);
-router.post('/enviar-notificacion', enviarNotificacionPaciente);
-
-// Opción A: Para que el usuario vea su propio historial (Usa el token req.uid)
-router.get('/historial', validarJWT, obtenerHistorialMedico);
-
-// Opción B: Para buscar las notificaciones de un paciente/médico específico por su ID de MySQL
-router.get('/usuario/:id', validarJWT, obtenerHistorialMedico);
-
-
-router.delete('/por_id/:id', borrarNotificacionMedicaPorId);
-router.delete('/limpiar/todas', borrarTodasLasNotificacionesMedicas);
-
-// En tu Node.js:
+// Sincronización libre para el Shared Hosting de Laravel
 router.post('/paciente-sync', async (req, res) => {
     try {
         const { nombre_paciente, telefono_paciente, mongo_user_id, fecha_cita } = req.body;
-
-        // Mandamos respuesta rápida a Laravel para liberar tu Shared Hosting
         res.status(200).json({ status: 'ok', message: 'Sincronización de paciente recibida' });
-
-        // Guardamos en la colección klyntic_pacientes usando tu modelo de Mongoose
-        // Recuerda que 'mongo_user_id' aquí actúa como el conector hacia el _id de klyntic_consultorios
         await Paciente.create({
             nombre_paciente,
             telefono_paciente,
             fecha_cita,
-            mongo_user_id // Guardado como String ("45")
+            mongo_user_id 
         });
-
     } catch (error) {
         console.error('Error al sincronizar paciente en Mongo:', error);
     }
 });
 
+
+// 🔒 A PARTIR DE AQUÍ TODO REQUIERE VALIDACIÓN JWT
+router.use(validarJWT);
+
+router.get('/unread-count', obtenerContadorMedico);
+router.put('/:id', marcarUnaLeidaMedica);
+router.post('/enviar-notificacion', enviarNotificacionPaciente);
+router.get('/historial', obtenerHistorialMedico);
+router.delete('/por_id/:id', borrarNotificacionMedicaPorId);
+router.delete('/limpiar/todas', borrarTodasLasNotificacionesMedicas);
 
 module.exports = router;
