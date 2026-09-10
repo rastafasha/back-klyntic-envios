@@ -9,6 +9,7 @@ const {
     enviarRecordatoriosMasivos,
     enviarNotificacionPaciente
 } = require('../controllers/notificacionesKlynticController'); 
+const { validarJWT } = require('../middlewares/validar-jwt');
 
 const router = Router();
 

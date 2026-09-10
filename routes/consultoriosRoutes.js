@@ -1,10 +1,10 @@
 const { Router } = require('express');
-const { validarJWT } = require('../middlewares/validar-jwt');
 const { 
     conectarWhatsappConsultorio, 
     statusWhatsappConsultorio, 
     sincronizarNuevoConsultorio 
 } = require('../controllers/consultoriosController');
+const { validarJWT } = require('../middlewares/validar-jwt');
 
 // 🚀 IMPORTAMOS TU SCRIPT DE RECORDATORIOS
 const { ejecutarRecordatorios } = require('../config/recordatorios-cron'); 
