@@ -1,69 +1,51 @@
 const axios = require('axios');
 const mongoose = require('mongoose');
 const Schema = mongoose.Schema;
-const Tasadollarbcv = require('../models/tasadollarbcv'); 
-
+const Tasadollarbcv = require('../models/tasadollarbcv');
+const Tasaeurobcv = require('../models/tasaeurobcv'); 
 
 /**
  * Función que extrae la data oficial de USD y EUR y actualiza MongoDB Atlas
  */
 async function sincronizarTasasOficiales() {
     try {
-        console.log('🔄 Consultando tasas oficiales globales desde ExchangeRate-API (v6)...');
+        console.log('🔄 Consultando endpoints independientes para USD y EUR...');
 
-        // 🔥 EXTRAEMOS LA KEY DE FORMA SEGURA DESDE LAS VARIABLES DE ENTORNO (.env)
-        const apiKey = process.env.EXCHANGE_RATE_KEY || '71ea6462a0b240201318fe91' ;
+        const apiKey = process.env.EXCHANGE_RATE_KEY || '71ea6462a0b240201318fe91';
 
-        if (!apiKey) {
-            throw new Error('La variable de entorno EXCHANGE_RATE_KEY no está configurada.');
+        // 1. Petición exclusiva para el valor del Dólar (Base USD)
+        const urlUSD = `https://exchangerate-api.com{apiKey}/latest/USD`;
+        const resUSD = await axios.get(urlUSD, { timeout: 8000 });
+        const ratesUSD = resUSD.data?.conversion_rates;
+
+        // 2. Petición exclusiva para el valor del Euro (Base EUR)
+        const urlEUR = `https://exchangerate-api.com{apiKey}/latest/EUR`;
+        const resEUR = await axios.get(urlEUR, { timeout: 8000 });
+        const ratesEUR = resEUR.data?.conversion_rates;
+
+        if (!ratesUSD?.VES || !ratesEUR?.VES) {
+            throw new Error('No se pudo obtener el valor en VES para alguna de las dos monedas.');
         }
 
-        // 🚀 CONCATENAMOS LA URL DINÁMICAMENTE USANDO LA VARIABLE SEGURA
-        const url = `https://v6.exchangerate-api.com/v6/${apiKey}/latest/USD`;
+        // Extraemos los valores reales directamente de cada endpoint
+        const valorDolar = Math.round(parseFloat(ratesUSD.VES) * 100) / 100; // Cuántos VES son 1 USD
+        const valorEuro = Math.round(parseFloat(ratesEUR.VES) * 100) / 100;  // Cuántos VES son 1 EUR
 
+        console.log(`[Valores API] USD: ${valorDolar} VES | EUR: ${valorEuro} VES`);
 
-        console.log('📡 Realizando petición HTTP segura a un endpoint autenticado (v6)...');
-
-        const response = await axios.get(url, {
-            headers: {
-                'Cache-Control': 'no-cache, no-store, must-revalidate',
-                'Pragma': 'no-cache',
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
-            },
-            timeout: 8000
-        });
-
-        // Sincronizado con la documentación v6: conversion_rates
-        const rates = response.data?.conversion_rates;
-
-        if (!rates || !rates.VES || !rates.EUR) {
-            throw new Error('La estructura financiera v6 no devolvió los pares de conversión para VES o EUR.');
-        }
-
-        // Conversión matemática exacta basada en USD
-        const valorDolar = Math.round(parseFloat(rates.VES) * 100) / 100;
-        const valorEuro = Math.round((parseFloat(rates.VES) / parseFloat(rates.EUR)) * 100) / 100;
-
-        console.log(`[Conversión v6 Exitosa] USD: ${valorDolar} VES | EUR: ${valorEuro} VES`);
-
-        if (isNaN(valorDolar) || isNaN(valorEuro) || valorDolar <= 0 || valorEuro <= 0) {
-            throw new Error('El cálculo matemático arrojó valores inválidos.');
-        }
-
-        // Actualización automática en tu base de datos de MongoDB Atlas
+        // Guardamos de forma segura en MongoDB Atlas
         await Tasadollarbcv.updateOne({}, { $set: { precio_dia: valorDolar } }, { upsert: true });
-
-        if (typeof Tasaeurobcv !== 'undefined') {
-            await Tasaeurobcv.updateOne({}, { $set: { precio_dia: valorEuro } }, { upsert: true });
-        }
-
+        await Tasaeurobcv.updateOne({}, { $set: { precio_dia: valorEuro } }, { upsert: true });
+        
+        console.log('💾 MongoDB actualizado con los precios independientes.');
         return { usd: valorDolar, eur: valorEuro };
 
     } catch (error) {
-        console.error('❌ Error en el sync automático de tasas:', error.message);
+        console.error('❌ Error en la sincronización:', error.message);
         return null; 
     }
 }
+
 
 
 

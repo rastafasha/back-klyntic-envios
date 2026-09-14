@@ -12,23 +12,29 @@ router.get('/tasks/sync-tasa-bcv', async (req, res) => {
         // 1. Respondemos de inmediato a cronjob.org (Evita el Timeout de 30s)
         res.status(200).json({
             ok: true,
-            msg: 'Sincronización automática iniciada en segundo plano.'
+            msg: 'Sincronización automática de USD y EUR iniciada en segundo plano.'
         });
 
-        // 2. El servidor Starter procesa la API y la Base de Datos en segundo plano
+        // 2. El servidor procesa la API y la Base de Datos en segundo plano
         sincronizarTasasOficiales()
-            .then(tasa => {
-                // ✅ VALIDACIÓN CORRECTA: Leemos .usd del objeto retornado por la v6
-                const tasaNumerica = tasa && tasa.usd ? parseFloat(tasa.usd) : NaN;
+            .then(tasas => {
+                // ✅ VALIDACIÓN: Verificamos que existan ambos valores válidos
+                const usdNumerico = tasas && tasas.usd ? parseFloat(tasas.usd) : NaN;
+                const eurNumerico = tasas && tasas.eur ? parseFloat(tasas.eur) : NaN;
 
-                if (!isNaN(tasaNumerica) && tasaNumerica > 0) {
-                    // Notificación en tiempo real a las pantallas de Angular
+                if (!isNaN(usdNumerico) && usdNumerico > 0 && !isNaN(eurNumerico) && eurNumerico > 0) {
+                    
+                    // CORRECCIÓN: Notificación en tiempo real a Angular enviando AMBAS tasas
                     if (global.io) {
-                        global.io.emit('tasa-bcv-actualizada', { tasa: tasaNumerica });
+                        global.io.emit('tasa-bcv-actualizada', { 
+                            usd: usdNumerico, 
+                            eur: eurNumerico 
+                        });
                     }
-                    console.log(`✅ [CRON] Base de datos y Sockets actualizados con éxito: ${tasaNumerica} VES`);
+                    console.log(`✅ [CRON] Sockets y BD al día. Directo de API -> USD: ${usdNumerico} VES | EUR: ${eurNumerico} VES`);
+                
                 } else {
-                    console.error('⚠️ [CRON] La API respondió pero el formato de tasa.usd es inválido.');
+                    console.error('⚠️ [CRON] La API respondió pero el formato de usd o eur es inválido.', tasas);
                 }
             })
             .catch(err => {
@@ -42,6 +48,7 @@ router.get('/tasks/sync-tasa-bcv', async (req, res) => {
         }
     }
 });
+
 
 
 
@@ -61,36 +68,43 @@ router.post('/forzar-actualizacion-tasa', async (req, res) => {
             }, 25000);
         });
 
-        // Guardamos la respuesta en la variable "tasa"
-        const tasa = await Promise.race([
+        // Obtenemos el objeto { usd, eur } retornado por la sincronización
+        const tasas = await Promise.race([
             sincronizarTasasOficiales(),
             timeoutPromise
         ]);
 
         if (timeoutId) clearTimeout(timeoutId);
 
-        // ✅ CORREGIDO: Usamos "tasa" en lugar de "resultado" que no existía
-        const tasaNumerica = tasa && tasa.usd ? parseFloat(tasa.usd) : NaN;
+        // ✅ VALIDACIÓN: Extraemos ambas tasas de forma numérica
+        const usdNumerico = tasas && tasas.usd ? parseFloat(tasas.usd) : NaN;
+        const eurNumerico = tasas && tasas.eur ? parseFloat(tasas.eur) : NaN;
 
-        if (!isNaN(tasaNumerica) && tasaNumerica > 0) {
+        if (!isNaN(usdNumerico) && usdNumerico > 0 && !isNaN(eurNumerico) && eurNumerico > 0) {
 
+            // Emisión unificada en tiempo real a las pantallas a través de Sockets
             if (global.io) {
-                global.io.emit('tasa-bcv-actualizada', { tasa: tasaNumerica });
-                // Opcional por si quieres emitir el euro también:
-                if (tasa.eur) global.io.emit('tasa-euro-actualizada', { tasa: parseFloat(tasa.eur) });
-                console.log(`📡 [SOCKET] Nueva tasa emitida globalmente: ${tasaNumerica}`);
+                global.io.emit('tasa-bcv-actualizada', { 
+                    usd: usdNumerico, 
+                    eur: eurNumerico 
+                });
+                console.log(`📡 [SOCKET] Nuevas tasas emitidas: USD ${usdNumerico} | EUR ${eurNumerico}`);
             }
 
+            // Respuesta HTTP exitosa al Panel Administrativo
             return res.json({
                 ok: true,
-                msg: 'Tasa oficial actualizada con éxito desde el panel administrativo.',
-                tasa: tasaNumerica
+                msg: 'Tasas oficiales actualizadas con éxito desde el panel administrativo.',
+                tasas: {
+                    usd: usdNumerico,
+                    eur: eurNumerico
+                }
             });
 
         } else {
             return res.status(400).json({
                 ok: false,
-                msg: 'El portal cambiario respondió correctamente pero devolvió un formato de tasa inválido o vacío.'
+                msg: 'El portal cambiario respondió correctamente pero devolvió un formato de tasas inválido o vacío.'
             });
         }
 
@@ -106,6 +120,7 @@ router.post('/forzar-actualizacion-tasa', async (req, res) => {
         return res.status(500).json({ ok: false, error: error.message });
     }
 });
+
 
 
 

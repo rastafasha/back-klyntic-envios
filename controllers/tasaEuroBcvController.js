@@ -1,10 +1,10 @@
 const { response } = require('express');
-const Tasadollarbcv = require('../models/tasadollarbcv'); 
+const Tasaeurobcv = require('../models/tasaeurobcv'); 
 
 
 const getTasas = async(req, res) => {
 
-    const tasas = await Tasadollarbcv.find()
+    const tasas = await Tasaeurobcv.find()
     res.json({
         ok: true,
         tasas
@@ -12,7 +12,7 @@ const getTasas = async(req, res) => {
 };
 const getUltimatasa = async(req, res) => {
 
-    const tasa = await Tasadollarbcv.find()
+    const tasa = await Tasaeurobcv.find()
 
     res.json({
         ok: true,
@@ -43,7 +43,7 @@ const crearTasa = async(req, res) => {
         }
 
         // 2. Creamos la tasa con el valor numérico ya sanitizado
-        const tasa = new Tasadollarbcv({
+        const tasa = new Tasaeurobcv({
             usuario: uid,
             precio_dia: valorNumerico // 🚀 Fijamos el valor real formateado aquí
         });
@@ -53,7 +53,7 @@ const crearTasa = async(req, res) => {
         // 3. ACTUALIZACIÓN CRUCIAL: Agregamos el ID de la tasa al PERFIL o USUARIO
         // ⚠️ CORRECCIÓN: Cambié 'Tasadollarbcv.findOneAndUpdate' por tu modelo real de Perfil/Usuario (ej: Perfil)
         // Si tu modelo de perfil se llama 'Perfil', asegúrate de importarlo arriba.
-        const perfilActualizado = await Tasadollarbcv.findOneAndUpdate(
+        const perfilActualizado = await Tasaeurobcv.findOneAndUpdate(
             { usuario: uid }, 
             { $push: { tasas: tasaDB._id }, haveTasa: true }, // Asignamos la relación correctamente
             { new: true }
@@ -87,7 +87,7 @@ const actualizarTasa = async(req, res) => {
     const uid = req.uid;       // ID del Usuario que hace la petición
 
     try {
-        const tasa = await Tasadollarbcv.findById(id);
+        const tasa = await Tasaeurobcv.findById(id);
 
         if (!tasa) {
             return res.status(404).json({
@@ -99,7 +99,7 @@ const actualizarTasa = async(req, res) => {
         // Preparamos los cambios (evitamos que el usuario cambie el dueño por error)
         const { usuario, ...campos } = req.body; 
         
-        const tasaActualizada = await Tasadollarbcv.findByIdAndUpdate(
+        const tasaActualizada = await Tasaeurobcv.findByIdAndUpdate(
             id, 
             campos, 
             { new: true } // Para que devuelva el documento ya modificado
@@ -127,7 +127,7 @@ const borrarTasa = async (req, res) => {
 
         // 🎯 1. BORRADO DIRECTO Y BLINDADO
         // Usamos findOneAndDelete con objeto para que acepte tanto ObjectIds como Strings planos
-        const tasaEliminada = await Tasadollarbcv.findOneAndDelete({ _id: id });
+        const tasaEliminada = await Tasaeurobcv.findOneAndDelete({ _id: id });
         
         if (!tasaEliminada) {
             return res.status(404).json({ ok: false, msg: 'Tasa no encontrada' });
