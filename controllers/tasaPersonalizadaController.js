@@ -1,4 +1,4 @@
-const Tasapersonalizada = require('../models/Tasapersonalizada'); // Asegúrate de que la ruta sea correcta
+const Tasapersonalizada = require('../models/tasapersonalizada'); // Asegúrate de que la ruta sea correcta
 
 // 1. OBTENER la tasa de un usuario específico
 const getTasaByUsuario = async (req, res) => {
