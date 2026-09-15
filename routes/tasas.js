@@ -68,17 +68,21 @@ router.post('/forzar-actualizacion-tasa', async (req, res) => {
             }, 25000);
         });
 
-        // Obtenemos el objeto { usd, eur } retornado por la sincronización
+        // Ejecutamos la sincronización compitiendo contra el timeout
         const tasas = await Promise.race([
             sincronizarTasasOficiales(),
             timeoutPromise
         ]);
 
-        if (timeoutId) clearTimeout(timeoutId);
+        // Si llegó aquí, limpiamos el timer inmediatamente
+        if (timeoutId) {
+            clearTimeout(timeoutId);
+            timeoutId = null;
+        }
 
-        // ✅ VALIDACIÓN: Extraemos ambas tasas de forma numérica
-        const usdNumerico = tasas && tasas.usd ? parseFloat(tasas.usd) : NaN;
-        const eurNumerico = tasas && tasas.eur ? parseFloat(tasas.eur) : NaN;
+        // CORRECCIÓN: Validación segura usando encadenamiento opcional (?.) para evitar caídas si tasas es null
+        const usdNumerico = tasas?.usd ? parseFloat(tasas.usd) : NaN;
+        const eurNumerico = tasas?.eur ? parseFloat(tasas.eur) : NaN;
 
         if (!isNaN(usdNumerico) && usdNumerico > 0 && !isNaN(eurNumerico) && eurNumerico > 0) {
 
@@ -102,19 +106,26 @@ router.post('/forzar-actualizacion-tasa', async (req, res) => {
             });
 
         } else {
+            // Esto pasará si sincronizarTasasOficiales devolvió null debido a un error interno capturado
             return res.status(400).json({
                 ok: false,
-                msg: 'El portal cambiario respondió correctamente pero devolvió un formato de tasas inválido o vacío.'
+                msg: 'El portal cambiario no pudo ser consultado o devolvió un formato de tasas inválido.'
             });
         }
 
     } catch (error) {
-        if (timeoutId) clearTimeout(timeoutId);
+        // CORRECCIÓN: Limpieza segura del timer si ocurre una excepción o timeout
+        if (timeoutId) {
+            clearTimeout(timeoutId);
+        }
 
         console.error('❌ Error crítico en forzar-actualizacion-tasa:', error.message);
 
         if (error.message.includes('Tiempo de espera')) {
-            return res.status(504).json({ ok: false, msg: error.message });
+            return res.status(504).json({ 
+                ok: false, 
+                msg: 'El servidor externo tardó demasiado en responder. Intente de nuevo.' 
+            });
         }
 
         return res.status(500).json({ ok: false, error: error.message });
