@@ -3,7 +3,8 @@ const mongoose = require('mongoose');
 const Schema = mongoose.Schema;
 const Tasadollarbcv = require('../models/tasadollarbcv');
 const Tasaeurobcv = require('../models/tasaeurobcv'); 
-
+const cheerio = require('cheerio');
+const https = require('https');
 /**
  * Función que extrae la data oficial de USD y EUR y actualiza MongoDB Atlas
  */
@@ -47,9 +48,6 @@ const Tasaeurobcv = require('../models/tasaeurobcv');
 // }
 
 
-const axios = require('axios');
-const cheerio = require('cheerio'); // Necesitarás instalarlo: npm i cheerio
-const https = require('https');
 
 async function sincronizarTasasOficiales() {
     try {
