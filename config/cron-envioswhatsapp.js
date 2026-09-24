@@ -1,70 +1,81 @@
 const cron = require('node-cron');
-const Consultorio = require('../models/consultorio'); // Tu modelo de Mongo
+const NotificacionCola = require('../models/notificacionCola'); // Tu modelo de la cola de Mongo
+const axios = require('axios');
 
-// Función auxiliar para generar retrasos asíncronos
 const delay = ms => new Promise(res => setTimeout(res, ms));
-
-// Generador de números aleatorios para simular comportamiento humano (entre 4 y 7 segundos)
 const obtenerRetrasoHumano = () => Math.floor(Math.random() * (7000 - 4000 + 1)) + 4000;
 
-// PROGRAMACIÓN: Se ejecuta cada minuto buscando citas con cron_state = 1
+// PROGRAMACIÓN: Se ejecuta cada minuto buscando registros en MongoDB con estado = 'PENDIENTE'
 cron.schedule('* * * * *', async () => {
-    console.log('⏳ [CRON KLYNTIC] Revisando cola de mensajes pendientes...');
+    console.log('⏳ [DEMONIO WHATSAPP] Revisando mensajes en cola de MongoDB...');
     
     try {
-        // 1. Buscamos todas las citas pendientes en tu base de datos
-        // Nota: Asumo que tienes un modelo Cita o Notificacion en tu microservicio.
-        // Si la data viene de Laravel por API, aquí harías el fetch a Laravel.
-        const notificacionesPendientes = await Notificacion.find({ estado_envio: 'PENDIENTE' }).limit(20);
+        // Tomamos un bloque máximo de 20 mensajes para procesar con calma y no levantar sospechas de spam
+        const pendientes = await NotificacionCola.find({ estado: 'PENDIENTE' }).limit(20);
 
-        if (notificacionesPendientes.length === 0) {
-            console.log('💤 No hay citas médicas próximas para notificar en este minuto.');
+        if (pendientes.length === 0) {
+            console.log('💤 Cola vacía. No hay mensajes de WhatsApp pendientes en este minuto.');
             return;
         }
 
-        console.log(`✉️ Se encontraron ${notificacionesPendientes.length} notificaciones pendientes por procesar.`);
+        console.log(`✉️ Procesando ráfaga de ${pendientes.length} recordatorios desde la cola...`);
 
-        // 2. Iteramos secuencialmente (NUNCA usar forEach con async/await, destruye la RAM)
-        for (const noti of notificacionesPendientes) {
-            const idDoctor = String(noti.doctorId);
-            const clienteWhatsApp = global.whatsappClients[idDoctor];
+        const urlBase = process.env.LARAVEL_API_URL;
+        const urlBaseLimpia = urlBase ? (urlBase.endsWith('/') ? urlBase.slice(0, -1) : urlBase) : '';
 
-            // Verificamos si este médico específico tiene su canal encendido y listo en RAM
-            if (!clienteWhatsApp || !global.whatsappStates[idDoctor] || global.whatsappStates[idDoctor].whatsappStatus !== 'CONECTADO') {
-                console.log(`⚠️ Doctor ID ${idDoctor} tiene mensajes pendientes pero su WhatsApp está DESCONECTADO.`);
-                continue; // Saltamos al siguiente mensaje sin romper el ciclo
+        for (const noti of pendientes) {
+            const idDoctor = String(noti.consultorio_id);
+            
+            // Buscamos si la instancia de WhatsApp de este médico está activa en la memoria RAM del servidor
+            const clienteWhatsApp = global.whatsappClients && global.whatsappClients[idDoctor];
+            const estadoWhatsApp = global.whatsappStates && global.whatsappStates[idDoctor];
+
+            if (!clienteWhatsApp || !estadoWhatsApp || estadoWhatsApp.whatsappStatus !== 'CONECTADO') {
+                console.log(`⚠️ El Consultorio ID ${idDoctor} tiene mensajes listos, pero su WhatsApp está DESCONECTADO en RAM.`);
+                continue; // Pasa al siguiente mensaje; este se queda en 'PENDIENTE' para la próxima vuelta
             }
 
             try {
-                // Formateamos el número al estándar internacional de WhatsApp (@c.us)
-                const numeroDestino = `${noti.telefono_paciente}@c.us`;
+                const numeroDestino = `${noti.telefono}@c.us`;
+                console.log(`📤 Despachando mensaje de WhatsApp al número: ${numeroDestino}...`);
                 
-                console.log(`📤 Enviando recordatorio al paciente de la clínica del Doctor ${idDoctor}...`);
-                
-                // Envió físico del mensaje a través de la instancia Puppeteer del médico
-                await clienteWhatsApp.sendMessage(numeroDestino, noti.mensaje_texto);
+                // Disparo físico a través del Chromium de ese doctor
+                await clienteWhatsApp.sendMessage(numeroDestino, noti.mensaje);
 
-                // 3. Actualizamos el estado de la notificación a EXITOSO
-                noti.estado_envio = 'ENVIADO';
+                // 1. Marcamos como exitoso en MongoDB
+                noti.estado = 'ENVIADO';
                 noti.enviado_at = new Date();
                 await noti.save();
+                console.log(`✅ Mensaje enviado en WhatsApp al paciente: ${noti.telefono}`);
 
-                console.log(`✅ Mensaje entregado con éxito a ${noti.telefono_paciente}`);
+                // 2. Reportamos de vuelta a Laravel Core para apagar el cron_state de la cita
+                if (urlBaseLimpia && noti.referenciaId) {
+                    const urlUpdate = `${urlBaseLimpia}/api/appointments/update-cron-state/${noti.referenciaId}`;
+                    await axios.post(urlUpdate, {}, {
+                        headers: { 'Authorization': `Bearer ${process.env.WEBHOOK_SECRET_TOKEN}` }
+                    }).catch(e => console.error(`⚠️ Error al actualizar cita ${noti.referenciaId} en Laravel:`, e.message));
+                }
 
-                // 🚀 EL SECRETO ANTI-BANEO: Esperamos un tiempo aleatorio humano antes del siguiente envío
+                // 🚀 SISTEMA ANTI-BANEO: Pausa aleatoria imitando escritura humana
                 const tiempoEspera = obtenerRetrasoHumano();
-                console.log(`⏱️ Protegiendo número del médico. Esperando ${tiempoEspera / 1000} segundos antes del siguiente...`);
+                console.log(`⏱️ Evitando bloqueos. Pausando ${tiempoEspera / 1000} segundos antes del siguiente...`);
                 await delay(tiempoEspera);
 
             } catch (envioError) {
-                console.error(`❌ Falló el envío físico para el paciente ${noti.telefono_paciente}:`, envioError.message);
-                noti.estado_envio = 'FALLIDO';
+                console.error(`❌ Error en la entrega física para el número ${noti.telefono}:`, envioError.message);
+                noti.estado = 'FALLIDO';
+                noti.intentos = (noti.intentos || 0) + 1;
                 noti.error_log = envioError.message;
+                
+                // Si falla más de 3 veces, lo sacamos de la cola marcándolo como fallido definitivo
+                if (noti.intentos >= 3) {
+                    noti.estado = 'FALLIDO_PERMANENTE';
+                }
                 await noti.save();
             }
         }
 
     } catch (globalCronError) {
-        console.error('❌ Error crítico dentro del ciclo del Cron Job:', globalCronError.message);
+        console.error('❌ Error crítico dentro del bucle del cron de WhatsApp:', globalCronError.message);
     }
 });

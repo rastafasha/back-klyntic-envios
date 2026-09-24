@@ -102,15 +102,22 @@ const startServer = async () => {
         // =========================================================================
         // ⚙️ MIDDLEWARES GLOBALES (¡DEBEN IR ANTES DE LAS RUTAS!)
         // =========================================================================
-        app.use(express.json()); // Reemplaza de forma nativa a bodyParser.json()
+        app.use(express.json()); 
         app.use(express.urlencoded({ extended: true }));
-        // app.use(express.static(path.join(__dirname, 'public'))); // Directorio público limpio
 
-        // Configuración de WebPush Notifications
+        // 🔥 LA CORRECCIÓN: Inyectamos el objeto IO global en cada petición HTTP
+        // Esto repara instantáneamente el 'req.io' de tus controladores médicos
+        app.use((req, res, next) => {
+            req.io = io;
+            next();
+        });
+
+        // Configuración de WebPush Notifications con validación estricta de llaves
         const vapidKeys = {
-            "publicKey": process.env.VAPI_KEY_PUBLIC,
-            "privateKey": process.env.VAPI_KEY_PRIVATE
+            "publicKey": process.env.VAPI_KEY_PUBLIC || process.env.VAPID_PUBLIC_KEY,
+            "privateKey": process.env.VAPI_KEY_PRIVATE || process.env.VAPID_PRIVATE_KEY
         };
+        
         webpush.setVapidDetails(
             'mailto:mercadocreativo@gmail.com',
             vapidKeys.publicKey,

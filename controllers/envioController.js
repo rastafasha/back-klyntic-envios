@@ -1,76 +1,81 @@
 const { response } = require('express');
-const { io } = require('../index');
-const { enviarFacturaWhatsApp } = require('../helpers/whatsapp-helper'); // Si usas whatsapp-web.js
-const nodemailer = require('nodemailer');
-// confirguramos el tarnsporter de nodemailer
-const transporter = nodemailer.createTransport({
-    host: process.env.HOST_EMAIL, // smtp.gmail.com
-    port: process.env.PORT_EMAIL,
-    secure: true, // true para puerto 465 (SSL)
-    auth: {
-        user: process.env.USER_EMAIL, // soporte@zlipmenu.com
-        pass: process.env.PASS_email  // Tu contraseña real o de app
-    },
-    tls: {
-        // Esto evita errores si el certificado SSL del servidor es autofirmado
-        rejectUnauthorized: false
-    }
-});
+const { MessageMedia } = require('whatsapp-web.js');
 
-
-// enviar factura al cliente, 
-function enviarFactura(req, res) {
+/**
+ * 📦 ENVIAR DOCUMENTO MÉDICO (Recetas, Informes, Órdenes de Exámenes)
+ * Este endpoint recibe el PDF/Imagen desde Laravel/Angular y lo despacha al paciente
+ */
+function enviarDocumentoPaciente(req, res) {
+    // 1. Control de seguridad por si no viaja el documento adjunto
     if (!req.file) {
-        return res.status(400).json({ ok: false, message: 'No se recibió ningún archivo' });
+        return res.status(400).json({ ok: false, message: 'No se recibió ningún documento médico adjunto.' });
     }
 
-    const nombreCliente = req.body.nombrecliente || 'Cliente';
-    const emailCliente = req.body.emailcliente;
-    const telefonoCliente = req.body.telefono; 
-    const nombreRestaurante = req.body.nombrerestaurante || 'nuestro restaurante';
+    // 2. Mapeamos la terminología al negocio de salud
+    const nombrePaciente = req.body.nombrePaciente || 'Paciente';
+    const telefonoPaciente = req.body.telefono; 
+    const nombreDoctor = req.body.nombreDoctor || 'su especialista';
     
-    // IMPORTANTE: Asegúrate de enviar 'idtienda' en el FormData desde Angular
-    const restauranteId = req.body.idtienda; 
+    // 🔥 CLAVE MULTI-TENANT: Resuelve a qué médico pertenece la línea de WhatsApp activa en RAM
+    const consultorioId = req.body.consultorioId; 
 
-    // ==========================================
-    // CANAL 1: ENVIAR POR EMAIL (Si existe)
-    // ==========================================
-    // if (emailCliente && emailCliente.trim() !== '') {
-    //     const mailOptions = {
-    //         from: `"Soporte ZlipMenu" <${process.env.USER_EMAIL}>`,
-    //         to: emailCliente,
-    //         subject: `¡Hola ${nombreCliente}! Te enviamos la factura de tu compra`,
-    //         text: `Hola ${nombreCliente}! Adjunto encontrarás la factura de tu compra en ${nombreRestaurante}.`,
-    //         attachments: [{ filename: req.file.originalname, content: req.file.buffer }],
-    //     };
-    //     transporter.sendMail(mailOptions, (err) => { if (err) console.error('Error Email:', err); });
-    // }
+    // =========================================================================
+    // 💬 DISPARO EXCLUSIVO VÍA WHATSAPP MULTI-TENANT
+    // =========================================================================
+    if (consultorioId && telefonoPaciente && telefonoPaciente.trim() !== '') {
+        
+        // Formateamos el número telefónico al estándar de WhatsApp (@c.us)
+        let telefonoLimpio = telefonoPaciente.replace(/\D/g, '');
+        if (telefonoLimpio.startsWith('0')) {
+            telefonoLimpio = '58' + telefonoLimpio.substring(1);
+        }
+        if (!telefonoLimpio.endsWith('@c.us')) {
+            telefonoLimpio = `${telefonoLimpio}@c.us`;
+        }
 
-    // ==========================================
-    // CANAL 2: WHATSAPP MULTI-TENANT AUTOMÁTICO
-    // ==========================================
-    if (restauranteId && telefonoCliente && telefonoCliente.trim() !== '') {
-        const mensajeTexto = `¡Hola ${nombreCliente}! ✨ Te escribimos de *${nombreRestaurante}*.\nAquí tienes adjunta tu factura digital generada por *Zlipmenu*.`;
+        // Construimos un mensaje profesional y empático para el entorno médico
+        const mensajeTexto = `✨ *KLYNTIC CONSULTORIO DIGITAL* ✨\n\n👋 Hola, estimado(a) *${nombrePaciente}*.\nLe escribe el equipo del(la) *${nombreDoctor}*.\n\n📄 Adjunto a este mensaje encontrará su documento digital (*Receta Médica / Informe*).`;
 
-        // Llamamos al helper dinámico pasándole la memoria del archivo directamente
-        enviarFacturaWhatsApp(
-            restauranteId, 
-            telefonoCliente, 
-            mensajeTexto, 
-            req.file.buffer, 
-            req.file.originalname
-        );
+        try {
+            // Buscamos la instancia activa de Puppeteer de ESTE doctor específico en la RAM del servidor
+            const clienteWhatsApp = global.whatsappClients && global.whatsappClients[consultorioId];
+            const estadoWhatsApp = global.whatsappStates && global.whatsappStates[consultorioId];
+
+            if (clienteWhatsApp && estadoWhatsApp && estadoWhatsApp.whatsappStatus === 'CONECTADO') {
+                
+                console.log(`📦 Preparando y empaquetando PDF/Imagen para el paciente de la consulta ID: ${consultorioId}`);
+                
+                // Transformamos el buffer del archivo en memoria a un objeto MessageMedia nativo de whatsapp-web.js
+                const documentoMedia = new MessageMedia(
+                    req.file.mimetype, 
+                    req.file.buffer.toString('base64'), 
+                    req.file.originalname
+                );
+
+                // Disparamos el archivo adjunto colocando el mensaje de texto como "pie de página" (caption)
+                clienteWhatsApp.sendMessage(telefonoLimpio, documentoMedia, { caption: mensajeTexto })
+                    .then(() => console.log(`✅ Documento médico entregado con éxito al paciente ${telefonoLimpio}`))
+                    .catch(err => console.error('❌ Error físico de whatsapp-web.js al entregar el documento:', err.message));
+
+            } else {
+                console.log(`⚠️ El WhatsApp del consultorio ${consultorioId} no está activo o se encuentra desconectado.`);
+            }
+
+        } catch (errorEstructura) {
+            console.error('❌ Error crítico estructurando el documento multimedia:', errorEstructura.message);
+        }
+
     } else {
-        console.log('Falta el ID del restaurante o el teléfono para procesar el WhatsApp.');
+        console.log('⚠️ Faltan parámetros indispensables (consultorioId o teléfono) para despachar el documento.');
     }
 
-    // Respuesta rápida a Angular en Vercel
+    // 🚀 RESPUESTA INSTANTÁNEA EN MILISEGUNDOS: Evita picos de bloqueo en Render o Vercel
     return res.json({
         ok: true,
-        message: 'La factura está siendo procesada por el bot del restaurante.'
+        message: 'El documento médico ha sido ingresado a la instancia del consultorio para su distribución.'
     });
 }
 
 module.exports = {
-    enviarFactura,
+    enviarDocumentoPaciente,
 };

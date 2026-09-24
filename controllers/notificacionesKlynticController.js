@@ -26,25 +26,46 @@ const recibirAlertaDesdeLaravel = async (req, res) => {
             referenciaId      // ID del objeto en MySQL
         } = req.body;
 
-        // =========================================================================
+                // =========================================================================
         // 🚀 TAREA 1: Notificación Interna en la App (MongoDB + WebSockets)
         // =========================================================================
         if (usuario && tipo) {
             const nuevaNotificacion = new NotificacionMedica({
-                usuario,
+                usuario: String(usuario), // Evita colisiones entre Postgres (Laravel) y Mongo
                 rolDestinatario,
                 titulo,
-                mensaje, // Usamos el mismo mensaje para ambos canales
+                mensaje, 
                 tipo,
                 referenciaId
             });
             await nuevaNotificacion.save();
 
-            // Emitimos por el WebSocket en tiempo real a la app de Angular
-            if (req.io) {
-                req.io.to(usuario).emit('recibir-alerta', nuevaNotificacion);
+            // ⚡ EXTRAEMOS EL SOCKET SERVER
+            const socketServer = req.io || global.io;
+            if (socketServer) {
+                
+                // 📊 CONTADOR EN CALIENTE: Calculamos cuántas alertas sin leer tiene el doctor justo ahora
+                const unreadCount = await NotificacionMedica.countDocuments({ 
+                    usuario: String(usuario), 
+                    leido: false 
+                });
+
+                // 🔔 EVENTO 1: Emitimos al canal exclusivo del ID del usuario enviando el conteo del globo
+                socketServer.emit(`notificacion-usuario-${usuario}`, {
+                    notificacion: nuevaNotificacion,
+                    unreadCount: unreadCount // 👈 ¡Esto le dice a Angular qué número pintar en el globo!
+                });
+
+                // 🔔 EVENTO 2: Enviamos a la sala por si el cliente usa salas tradicionales
+                socketServer.to(String(usuario)).emit('recibir-alerta', {
+                    notificacion: nuevaNotificacion,
+                    unreadCount: unreadCount
+                });
+
+                console.log(`📡 [SOCKET EMITIDO]: Alerta e indicador de globo (${unreadCount}) enviados al médico ID: ${usuario}`);
             }
         }
+
 
         // =========================================================================
         // 💬 TAREA 2: Encolado de WhatsApp Seguro (Anti-Colapso de RAM)
