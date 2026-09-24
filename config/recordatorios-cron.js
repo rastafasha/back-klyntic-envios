@@ -1,5 +1,5 @@
 const axios = require('axios');
-const NotificacionCola = require('../models/notificacionCola'); // Tu modelo de la cola de Mongo
+const NotificacionMedica = require('../models/notificacionMedica'); // Tu modelo de la cola de Mongo
 
 async function ejecutarRecordatorios() {
     console.log('⏰ [Klyntic Cron Extractor] Despertando reloj nativo de Render...');
@@ -57,7 +57,7 @@ async function ejecutarRecordatorios() {
                 }
 
                 // Insertamos o actualizamos en la cola de MongoDB para que el cron de cada minuto lo procese
-                await NotificacionCola.findOneAndUpdate(
+                await NotificacionMedica.findOneAndUpdate(
                     { referenciaId: String(cita.id) }, 
                     {
                         consultorio_id: String(cita.doctor_id || cita.consultorio_id),
