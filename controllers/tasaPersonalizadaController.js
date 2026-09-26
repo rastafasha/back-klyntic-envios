@@ -166,25 +166,54 @@ const actualizarTasa = async (req, res) => {
 // 3. ELIMINAR la tasa (para volver a usar las tasas oficiales por defecto)
 const eliminarTasaPersonalizada = async (req, res) => {
     try {
-        const { idUsuario } = req.params;
+        // 🚀 CAPTURA FLEXIBLE: Intentamos leer el ID desde el parámetro tradicional, del body o del token
+        const targetId = req.params.idUsuario || req.params.id || req.body.usuario || req.uid;
 
-        const resultado = await Tasapersonalizada.findOneAndDelete({ usuario: idUsuario });
+        if (!targetId) {
+            return res.status(400).json({
+                ok: false,
+                msg: 'Error: No se especificó un identificador válido para ejecutar la eliminación.'
+            });
+        }
 
+        console.log(`🗑️ [Tasa Fija] Solicitando remoción de tasa para ID/Contexto: ${targetId}`);
+
+        // 🎯 INTENTO A: Buscamos si el ID enviado corresponde a la columna 'usuario' (ID del médico o clínica)
+        let resultado = await Tasapersonalizada.findOneAndDelete({ usuario: targetId });
+
+        // 🎯 INTENTO B: Si no borró nada, evaluamos si Angular nos envió el '_id' directo del documento de la tasa
+        if (!resultado) {
+            console.log(`🔍 Intentando borrado secundario directo por _id de documento Mongoose...`);
+            resultado = await Tasapersonalizada.findByIdAndDelete(targetId);
+        }
+
+        // Si después de ambos intentos no se encontró el registro en MongoDB Atlas
         if (!resultado) {
             return res.status(404).json({
                 ok: false,
-                msg: 'No se encontró ninguna tasa configurada para este usuario.'
+                msg: 'No se encontró ninguna tasa activa configurada para este establecimiento o ID.'
             });
+        }
+
+        console.log(`✅ [Tasa Fija] Registro eliminado con éxito de MongoDB.`);
+
+        // Notificamos por Sockets el reinicio a cero si el canal está activo
+        if (global.io) {
+            global.io.to(resultado.usuario).emit('tasa-personalizada-actualizada', { precio_dia: 0 });
         }
 
         return res.json({
             ok: true,
-            msg: 'Tasa personalizada eliminada. El sistema volverá a usar los valores oficiales.'
+            msg: 'Tasa personalizada eliminada con éxito. El sistema volverá a usar los valores oficiales.'
         });
 
     } catch (error) {
-        console.error('❌ Error al eliminar tasa personalizada:', error.message);
-        return res.status(500).json({ ok: false, msg: 'Error al eliminar el registro.' });
+        console.error('❌ Error crítico en eliminarTasaPersonalizada:', error.message);
+        return res.status(500).json({ 
+            ok: false, 
+            msg: 'Error interno en el servidor de Node.js al eliminar el registro.',
+            error: error.message 
+        });
     }
 };
 

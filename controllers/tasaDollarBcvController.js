@@ -1,31 +1,63 @@
 const { response } = require('express');
-const Tasadollarbcv = require('../models/tasadollarbcv'); 
+const Tasadollarbcv = require('../models/tasadollarbcv');
 
+const getTasas = async (req, res) => {
+    try {
+        // Captura el ID de forma flexible (prioriza la query string que envía tu Angular)
+        const uid = req.query.usuario || req.query.uid || req.params.id || req.uid;
 
-const getTasas = async(req, res) => {
+        if (!uid) {
+            return res.status(400).json({ ok: false, msg: 'No se especificó el ID del propietario de la tasa.' });
+        }
 
-    const tasas = await Tasadollarbcv.find()
-    res.json({
-        ok: true,
-        tasas
-    });
+        const tasas = await Tasadollarbcv.find({ usuario: uid }).sort({ createdAt: -1 });
+        return res.json({ ok: true, tasas });
+    } catch (error) {
+        console.error(error);
+        return res.status(500).json({ ok: false, msg: 'Error al consultar el historial de tasas.' });
+    }
 };
+
 const getUltimatasa = async(req, res) => {
+    try {
+        const uid = req.query.usuario || req.query.uid || req.params.id || req.uid;
 
-    const tasa = await Tasadollarbcv.find()
+        if (!uid) {
+            return res.status(400).json({ ok: false, msg: 'No se especificó el ID del propietario.' });
+        }
 
-    res.json({
-        ok: true,
-        tasa: tasa[tasa.length - 1] // Devuelve la última tasa del array
-    });
+        // 🎯 INTENTO 1: Buscamos si existe una tasa oficial cargada específicamente para este Tenant/Médico
+        let tasa = await Tasadollarbcv.findOne({ usuario: uid }).sort({ createdAt: -1 });
+
+        // 🚀 INTENTO 2 (FALLBACK GLOBAL): Si no hay tasa para este usuario, 
+        // traemos la última tasa universal inyectada por el Cronjob en el servidor
+        if (!tasa) {
+            console.log(`⚠️ No hay tasa específica para el usuario ${uid}. Extrayendo última tasa global del Cronjob...`);
+            
+            // Buscamos la última tasa registrada de forma absoluta, saltándonos el filtro de usuario
+            tasa = await Tasadollarbcv.findOne().sort({ createdAt: -1 });
+        }
+
+        return res.json({
+            ok: true,
+            // Si el servidor está completamente vacío y en frío, devuelve 0 de respaldo seguro
+            tasa: tasa || { usuario: uid, precio_dia: 0 } 
+        });
+    } catch (error) {
+        console.error('Error en getUltimatasa:', error);
+        return res.status(500).json({ ok: false, msg: 'Error al extraer la tasa de cambio activa.' });
+    }
 };
 
 
-const crearTasa = async(req, res) => {
-    const uid = req.uid; // ID del usuario autenticado
+/**
+ * 💾 Registra un nuevo valor de liquidación amarrado al contexto correcto
+ */
+const crearTasa = async (req, res) => {
+    // 🚀 DETECCIÓN MULTI-TENANT: Prioriza el propietario enviado en el body por el formulario de la secretaria
+    const uid = req.body.usuario || req.body.uid || req.uid;
 
     try {
-        // 1. Extraemos el precio y limpiamos la coma decimal de forma estricta
         let precioEntrante = req.body.precio_dia || req.body.tasa;
 
         if (typeof precioEntrante === 'string') {
@@ -34,119 +66,62 @@ const crearTasa = async(req, res) => {
 
         const valorNumerico = parseFloat(Number(precioEntrante).toFixed(2));
 
-        // Validación matemática de seguridad
         if (isNaN(valorNumerico) || valorNumerico <= 0) {
             return res.status(400).json({
                 ok: false,
-                msg: 'El formato de la tasa no es un número válido (ej: 775.33)'
+                msg: 'El formato de la tasa no es un número válido (ej: 36.50)'
             });
         }
 
-        // 2. Creamos la tasa con el valor numérico ya sanitizado
+        // Creamos e indexamos la tasa asociando el dueño real resolved en la base de datos
         const tasa = new Tasadollarbcv({
             usuario: uid,
-            precio_dia: valorNumerico // 🚀 Fijamos el valor real formateado aquí
+            precio_dia: valorNumerico
         });
 
         const tasaDB = await tasa.save();
 
-        // 3. ACTUALIZACIÓN CRUCIAL: Agregamos el ID de la tasa al PERFIL o USUARIO
-        // ⚠️ CORRECCIÓN: Cambié 'Tasadollarbcv.findOneAndUpdate' por tu modelo real de Perfil/Usuario (ej: Perfil)
-        // Si tu modelo de perfil se llama 'Perfil', asegúrate de importarlo arriba.
-        const perfilActualizado = await Tasadollarbcv.findOneAndUpdate(
-            { usuario: uid }, 
-            { $push: { tasas: tasaDB._id }, haveTasa: true }, // Asignamos la relación correctamente
-            { new: true }
-        );
-
-        if (!perfilActualizado) {
-            return res.status(404).json({
-                ok: false,
-                msg: 'No se encontró el perfil de configuración para este usuario'
-            });
-        }
-
         res.json({
             ok: true,
             tasa: tasaDB,
-            perfil: 'Perfil médico actualizado con la nueva tasa cambiaria'
+            msg: 'Tasa oficial de dólares sincronizada correctamente en el entorno del establecimiento.'
         });
 
     } catch (error) {
-        console.log(error);
-        res.status(500).json({
-            ok: false,
-            msg: 'Error al crear la tasa, contacte al admin'
-        });
+        console.error(error);
+        res.status(500).json({ ok: false, msg: 'Error al registrar la tasa, contacte al admin' });
     }
 };
 
 
-const actualizarTasa = async(req, res) => {
-    const id = req.params.id; // ID de la Tasa
-    const uid = req.uid;       // ID del Usuario que hace la petición
-
+const actualizarTasa = async (req, res) => {
+    const id = req.params.id;
     try {
         const tasa = await Tasadollarbcv.findById(id);
-
         if (!tasa) {
-            return res.status(404).json({
-                ok: false,
-                msg: 'Tasa no encontrada'
-            });
+            return res.status(404).json({ ok: false, msg: 'Tasa no encontrada' });
         }
 
-        // Preparamos los cambios (evitamos que el usuario cambie el dueño por error)
-        const { usuario, ...campos } = req.body; 
-        
-        const tasaActualizada = await Tasadollarbcv.findByIdAndUpdate(
-            id, 
-            campos, 
-            { new: true } // Para que devuelva el documento ya modificado
-        );
+        const { usuario, ...campos } = req.body;
+        const tasaActualizada = await Tasadollarbcv.findByIdAndUpdate(id, campos, { new: true });
 
-        res.json({
-            ok: true,
-            tasa: tasaActualizada
-        });
-
+        res.json({ ok: true, tasa: tasaActualizada });
     } catch (error) {
-        console.log(error);
-        res.status(500).json({
-            ok: false,
-            msg: 'Error al actualizar, hable con el administrador'
-        });
+        console.error(error);
+        res.status(500).json({ ok: false, msg: 'Error al actualizar, hable con el administrador' });
     }
 };
 
 const borrarTasa = async (req, res) => {
     const id = req.params.id;
-
     try {
-        console.log(`🗑️ [TASAS] Intentando eliminar tasa ID: ${id}`);
-
-        // 🎯 1. BORRADO DIRECTO Y BLINDADO
-        // Usamos findOneAndDelete con objeto para que acepte tanto ObjectIds como Strings planos
         const tasaEliminada = await Tasadollarbcv.findOneAndDelete({ _id: id });
-        
         if (!tasaEliminada) {
             return res.status(404).json({ ok: false, msg: 'Tasa no encontrada' });
         }
-
-        console.log(`✅ [TASAS] Tasa ${id} eliminada con éxito del historial global.`);
-        
-        return res.json({ 
-            ok: true, 
-            msg: 'Tasa eliminada' 
-        });
-
+        return res.json({ ok: true, msg: 'Tasa eliminada del historial con éxito.' });
     } catch (error) {
-        console.error('❌ Error crítico en borrarTasa:', error.message);
-        return res.status(500).json({ 
-            ok: false, 
-            msg: 'Error al borrar tasa',
-            error: error.message 
-        });
+        return res.status(500).json({ ok: false, msg: 'Error al borrar tasa' });
     }
 };
 
