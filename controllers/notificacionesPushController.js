@@ -6,44 +6,51 @@ const { sendNotification } = require('../helpers/sendNotification');
 // 1. Guardar Suscripción del Navegador o Teléfono del Paciente/Médico
 const guardarSuscripcion = async (req, res) => {
     try {
-        const subscription = req.body;
+        const { endpoint, expirationTime, keys, userId } = req.body;
         
-        const uid = req.uid || req.header('x-uid') || 'GUEST'; 
+        // 🚀 CAPTURA MAESTRA: Leemos el userId que viaja en el body, o caemos en los headers
+        const uid = userId || req.header('x-uid') || req.header('X-Uid') || req.uid || 'GUEST'; 
 
-        if (!subscription || !subscription.endpoint) {
+        if (!endpoint) {
             return res.status(400).json({ ok: false, msg: 'Suscripción inválida o incompleta' });
         }
 
-        // Guardamos o actualizamos el dispositivo en Mongo vinculándolo al ID de MySQL
+        console.log(`💾 [MONGO SYNC] Vinculando dispositivo al ID de usuario real: ${uid}`);
+
+        // Reestructuramos el objeto tal como lo espera recibir la colección
+        const subscriptionData = { endpoint, expirationTime, keys };
+
+        // Guardamos o actualizamos en Mongo asegurando que el campo 'usuario' grabe el ID físico real
         await PushSubscription.findOneAndUpdate(
-            { 'subscription.endpoint': subscription.endpoint }, 
-            { usuario: uid, subscription: subscription },
+            { 'subscription.endpoint': endpoint }, 
+            { usuario: String(uid).trim(), subscription: subscriptionData }, // 🟢 GRABA EL ID REAL EN VEZ DE 'GUEST'
             { upsert: true, new: true }
         );
 
-        // 🔒 AISLAMIENTO DEL MENSAJE DE BIENVENIDA:
+        // 🔒 SOLUCIÓN AL VALIDATION ERROR DE MONGOOSE:
+        // Adaptamos el llamado para que cumpla estrictamente con las reglas de tu esquema 'NotificacionMedica'
         try {
             await sendNotification(
-                subscription, 
+                subscriptionData, 
                 '¡Bienvenido a Klyntic! 🏥', 
                 'Ahora recibirás tus alertas y llamados médicos aquí.',
-                '/dashboard',
-                uid,
-                'AVISO_GENERAL'
+                '/medical',
+                String(uid).trim(),
+                'PAGO_RECIBIDO', // 🟢 Cambiamos 'AVISO_GENERAL' por un Enum que sí exista en tu esquema (ej: 'PAGO_RECIBIDO')
+                null
             );
-            console.log('🔔 Mensaje de bienvenida enviado con éxito');
+            console.log('🔔 Mensaje de bienvenida nativo enviado con éxito.');
         } catch (pushError) {
             console.warn('⚠️ No se pudo enviar el push de bienvenida inmediato:', pushError.message);
         }
         
-        return res.status(201).json({ ok: true, msg: 'Suscripción guardada con éxito' });
+        return res.status(201).json({ ok: true, msg: 'Suscripción guardada con éxito', usuarioAsociado: uid });
 
     } catch (error) {
         console.error('❌ Error crítico en guardarSuscripcion:', error);
         return res.status(500).json({ ok: false, msg: 'Error al guardar suscripción en el servidor de envíos' });
     }
 };
-
 
 // 2. Envío Individual (El helper centraliza el Socket y la BD de Klyntic)
 const enviarPushIndividual = async (req, res) => {

@@ -10,11 +10,12 @@ const {
     enviarNotificacionPaciente
 } = require('../controllers/notificacionesKlynticController'); 
 const { validarJWT } = require('../middlewares/validar-jwt');
+const { validarWebhookLaravel } = require('../middlewares/validar-webhook');
 
 const router = Router();
 
 // 1. Endpoints LIBRES de token de usuario (Acceso directo para Laravel y consultas rápidas de Angular)
-router.post('/webhook-recordatorio', recibirAlertaDesdeLaravel);
+router.post('/webhook-recordatorio', validarWebhookLaravel, recibirAlertaDesdeLaravel);
 
 // 🟢 SOLUCIÓN AL 401: Colocamos la consulta del usuario AQUÍ arriba, antes de proteger el archivo con validarJWT.
 // Esto permite que el 'cargarContadorInicial' de tu Angular lea el historial de MongoDB sin ser rebotado.
