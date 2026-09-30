@@ -47,7 +47,7 @@ const corsOptions = {
     origin: (origin, callback) => {
         if (!origin) return callback(null, true);
 
-        const esSubdominioKlyntic = /\.klyntic\.com$/.test(origin) || origin === "https://klyntic.com" || origin === "http://klyntic.com";
+        const esSubdominioKlyntic = /\.klyntic\.com\$/.test(origin) || origin === "https://klyntic.com" || origin === "http://klyntic.com";
 
         if (esSubdominioKlyntic || allowedOrigins.includes(origin)) {
             callback(null, true);
@@ -57,8 +57,20 @@ const corsOptions = {
         }
     },
 
-    // 🛡️ Autoriza explícitamente al navegador a enviar los tokens de Angular
-    allowedHeaders: ["Content-Type", "Authorization", "x-token", "Accept", "auth_token"],
+    // 🛡️ Autoriza explícitamente al navegador a enviar los tokens e identificadores de Angular
+    // 🟢 CORRECCIÓN: Agregadas 'x-uid', 'X-Tenant-Slug' y 'X-Clinica-Slug' para liberar el Preflight
+    allowedHeaders: [
+        "Content-Type", 
+        "Authorization", 
+        "x-token", 
+        "Accept", 
+        "auth_token", 
+        "x-uid", 
+        "x-tenant-slug", 
+        "X-Tenant-Slug", 
+        "X-Clinica-Slug", 
+        "x-clinica-slug"
+    ],
 
     methods: "GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS",
     credentials: true,
@@ -128,14 +140,18 @@ const startServer = async () => {
         // 🌐 DECLARACIÓN DE RUTAS DE TU API
         // =========================================================================
         app.use('/api/notipush', require('./routes/notipush'));
-        // === SECCIÓN SAAS MÉDICO (Klyntic) ===
         app.use('/api/klyntic/notificaciones', require('./routes/notificacionesKlynticRoutes'));
         app.use('/api/klyntic/consultorios', require('./routes/consultoriosRoutes'));
+        
+        // 🟢 ADICIÓN SALVAVIDAS: Registramos la ruta que Laravel está llamando en el Webhook
+        // Vinculamos el endpoint a tu controlador de envíos/alertas
+        app.use('/api/recursos', require('./routes/envio')); 
+        
         app.use('/api/tasadollarbcv', require('./routes/tasadollarbcv'));
         app.use('/api/tasaeurobcv', require('./routes/tasaeurobcv'));
         app.use('/api/tasapersonalizada', require('./routes/tasapersonalizada'));
         app.use('/api/tasas', require('./routes/tasas'));
-        app.use('/api/envio', require('./routes/envio'));
+        // app.use('/api/envio', require('./routes/envio'));
 
 
         // Test Endpoint de bienvenida
@@ -148,7 +164,7 @@ const startServer = async () => {
         // =========================================================================
 
         // Render asigna un puerto dinámico. Usamos 10000 como respaldo (puerto estándar de Render).
-        const PORT = process.env.PORT || 10000;
+        const PORT = process.env.PORT || 5000;
 
         // Escuchamos en '0.0.0.0' para permitir conexiones externas en el contenedor de Render
         server.listen(PORT, '0.0.0.0', () => {

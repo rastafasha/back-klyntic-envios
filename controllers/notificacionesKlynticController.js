@@ -14,61 +14,65 @@ const delay = ms => new Promise(res => setTimeout(res, ms));
 // =========================================================================
 const recibirAlertaDesdeLaravel = async (req, res) => {
     try {
-        // Recibimos tanto los datos de WhatsApp como los nuevos campos de la app de Klyntic
+        // 🔥 LOG DE DETECCIÓN: Imprime en tu terminal de Node exactamente qué te mandó Laravel
+        console.log("📥 [WEBHOOK RECEPCIÓN] Payload recibido desde Laravel:", JSON.stringify(req.body, null, 2));
+
         const {
             consultorio_id,
             telefono,
             mensaje,
-            usuario,          // ID del médico o paciente de MySQL
+            usuario,          // ID de MySQL
             rolDestinatario,  // 'MEDICO' o 'PACIENTE'
-            titulo,           // Título para el Toastr de Angular
-            tipo,             // El enum: 'PAGO_RECIBIDO', 'CITA_AGENDADA', etc.
-            referenciaId      // ID del objeto en MySQL
+            titulo,           
+            tipo,             // El enum
+            referenciaId      
         } = req.body;
 
-                // =========================================================================
+        // =========================================================================
         // 🚀 TAREA 1: Notificación Interna en la App (MongoDB + WebSockets)
         // =========================================================================
+        // Si entra aquí, imprimirá un log. Si no entra, sabremos que usuario o tipo vienen nulos.
         if (usuario && tipo) {
+            console.log(`💾 Intentando guardar en Mongo para usuario: ${usuario}, Tipo: ${tipo}`);
+            
             const nuevaNotificacion = new NotificacionMedica({
-                usuario: String(usuario), // Evita colisiones entre Postgres (Laravel) y Mongo
+                usuario: String(usuario).trim(), 
                 rolDestinatario,
                 titulo,
                 mensaje, 
                 tipo,
                 referenciaId
             });
-            await nuevaNotificacion.save();
+            
+            await nuevaNotificacion.save()
+                .then(() => console.log("✅ [MONGO] Alerta guardada con éxito en la base de datos."))
+                .catch(err => console.error("❌ [MONGO ERROR] El esquema rechazó el guardado:", err.message));
 
-            // ⚡ EXTRAEMOS EL SOCKET SERVER
             const socketServer = req.io || global.io;
             if (socketServer) {
-                
-                // 📊 CONTADOR EN CALIENTE: Calculamos cuántas alertas sin leer tiene el doctor justo ahora
                 const unreadCount = await NotificacionMedica.countDocuments({ 
-                    usuario: String(usuario), 
+                    usuario: String(usuario).trim(), 
                     leido: false 
                 });
 
-                // 🔔 EVENTO 1: Emitimos al canal exclusivo del ID del usuario enviando el conteo del globo
                 socketServer.emit(`notificacion-usuario-${usuario}`, {
                     notificacion: nuevaNotificacion,
-                    unreadCount: unreadCount // 👈 ¡Esto le dice a Angular qué número pintar en el globo!
+                    unreadCount: unreadCount 
                 });
 
-                // 🔔 EVENTO 2: Enviamos a la sala por si el cliente usa salas tradicionales
                 socketServer.to(String(usuario)).emit('recibir-alerta', {
                     notificacion: nuevaNotificacion,
                     unreadCount: unreadCount
                 });
-
-                console.log(`📡 [SOCKET EMITIDO]: Alerta e indicador de globo (${unreadCount}) enviados al médico ID: ${usuario}`);
             }
+        } else {
+            // 🔥 ADVERTENCIA: Te avisará en la consola si las variables críticas llegaron vacías
+            console.warn("⚠️ [WEBHOOK ABORTADO]: No se guardó en Mongo porque 'usuario' o 'tipo' vinieron vacíos en el JSON.");
         }
 
 
-        // =========================================================================
-        // 💬 TAREA 2: Encolado de WhatsApp Seguro (Anti-Colapso de RAM)
+       // =========================================================================
+        // 💬 TAREA 2: Encolado de WhatsApp Seguro con Despertar Automático (MAMP)
         // =========================================================================
         if (telefono) {
             let telefonoLimpio = telefono.replace(/\D/g, '');
@@ -76,21 +80,25 @@ const recibirAlertaDesdeLaravel = async (req, res) => {
                 telefonoLimpio = '58' + telefonoLimpio.substring(1);
             }
 
-            // 🚀 EN LUGAR DE PRENDER PUPPETEER EN CALIENTE, GUARDAMOS EN LA COLA DE MONGO
-            // Esto protege tu servidor Render de picos de tráfico masivos
-            const NotificacionCola = require('../models/notificacionCola'); // Creamos un modelo simple para la cola
+            const NotificacionCola = require('../models/notificacionCola');
 
+            // Guardamos en la base de datos de persistencia
             await NotificacionCola.findOneAndUpdate(
-                { referenciaId: String(referenciaId) }, // Evita mensajes duplicados de la misma cita
+                { referenciaId: String(referenciaId) }, 
                 {
                     consultorio_id: String(consultorio_id),
                     telefono: telefonoLimpio,
                     mensaje: mensaje,
-                    estado: 'PENDIENTE', // El Cron lo leerá en su próxima vuelta
+                    estado: 'PENDIENTE', 
                     intentos: 0
                 },
                 { upsert: true, new: true, setDefaultsOnInsert: true }
             ).catch(err => console.error('❌ Error al guardar en cola de WhatsApp:', err.message));
+
+            // ⚡ MOTOR VIVO: Despertamos el bucle de procesamiento si está dormido
+            if (!procesandoCola) {
+                procesarColaWhatsAppEnSegundoPlano();
+            }
         }
 
 
@@ -105,38 +113,88 @@ const recibirAlertaDesdeLaravel = async (req, res) => {
     }
 };
 
+const procesarColaWhatsAppEnSegundoPlano = async () => {
+    procesandoCola = true;
+    const NotificacionCola = require('../models/notificacionCola');
+
+    try {
+        console.log('⏱️ [Klyntic Queue] Buscando mensajes PENDIENTES en MongoDB...');
+        let mensajePendiente = await NotificacionCola.findOne({ estado: 'PENDIENTE' });
+
+        while (mensajePendiente) {
+            const idDoctorStr = String(mensajePendiente.consultorio_id);
+            let clienteActivo = global.whatsappClients && global.whatsappClients[idDoctorStr];
+
+            if (clienteActivo) {
+                let destino = mensajePendiente.telefono;
+                if (!destino.endsWith('@c.us')) destino = `${destino}@c.us`;
+
+                try {
+                    await clienteActivo.sendMessage(destino, mensajePendiente.mensaje);
+                    mensajePendiente.estado = 'ENVIADO';
+                    console.log(`✅ Message delivered directly to: ${destino}`);
+                } catch (err) {
+                    mensajePendiente.intentos += 1;
+                    if (mensajePendiente.intentos >= 3) mensajePendiente.estado = 'FALLIDO';
+                    console.error(`❌ Native Error sending to ${destino}:`, err.message);
+                }
+                await mensajePendiente.save();
+            } else {
+                console.warn(`⚠️ Consultorio ${idDoctorStr} desconectado. Se pospone el mensaje.`);
+                // Cambiamos el estado temporalmente para no atorar el bucle infinito
+                mensajePendiente.estado = 'ESPERANDO_CONEXION';
+                await mensajePermanente.save();
+            }
+
+            // Pausa protectora de 3.5 segundos para evitar bloqueos/spam
+            await delay(3500);
+            // Buscamos el siguiente registro pendiente
+            mensajePendiente = await NotificacionCola.findOne({ estado: 'PENDIENTE' });
+        }
+    } catch (error) {
+        console.error('❌ Error crítico procesando la cola de WhatsApp:', error);
+    } finally {
+        procesandoCola = false;
+        console.log('🏁 [Klyntic Queue] Cola vaciada o en espera de nuevas alertas.');
+    }
+};
+
 // =========================================================================
 // 🔔 HISTORIAL Y INTERFAZ DE ANGULAR (MÉDICOS / PACIENTES)
 // =========================================================================
 const obtenerHistorialMedico = async (req, res) => {
     try {
-        // 1. Extraemos el usuarioId de los parámetros o del token
         const usuarioId = req.params.id || req.uid;
 
         if (!usuarioId) {
             return res.status(400).json({ ok: false, msg: 'No se proporcionó el ID del usuario' });
         }
 
-        // 2. 🔥 CAPTURAMOS LA PAGINACIÓN: Leemos el query string '?page=' (por defecto es 1)
         const pagina = parseInt(req.query.page, 10) || 1;
-        const limitePorPagina = 10; // Cantidad de alertas que mostraremos por bloque
+        const limitePorPagina = 10;
         const saltarRegistros = (pagina - 1) * limitePorPagina;
 
-        // 3. Hacemos dos consultas en paralelo para que el servidor vuele:
-        // Una trae las notificaciones de ese bloque y la otra cuenta el total general en Mongo
+        // 🟢 CLAVE DEL SANEAMIENTO: Buscamos el ID tanto en String como en Número entero
+        // Esto soluciona de inmediato el problema si Laravel guardó "16" o 16.
+        const queryFiltro = {
+            $or: [
+                { usuario: String(usuarioId).trim() },
+                { usuario: Number(usuarioId) }
+            ]
+        };
+
+        // Ejecutamos las consultas con el nuevo filtro unificado
         const [notificaciones, totalNotificaciones] = await Promise.all([
-            NotificacionMedica.find({ usuario: usuarioId })
+            NotificacionMedica.find(queryFiltro)
                 .sort({ fecha: -1 })
                 .skip(saltarRegistros)
                 .limit(limitePorPagina),
-            NotificacionMedica.countDocuments({ usuario: usuarioId })
+            NotificacionMedica.countDocuments(queryFiltro)
         ]);
 
-        // 4. 🔥 CÁLCULO DEL PRÓXIMO: Si todavía quedan más registros por cargar, calculamos el número de la siguiente página
         const totalPaginas = Math.ceil(totalNotificaciones / limitePorPagina);
         const proximo = pagina < totalPaginas ? pagina + 1 : null;
 
-        // Retornamos exactamente el objeto que tu interfaz de Angular está esperando
         return res.json({
             ok: true,
             notificaciones,

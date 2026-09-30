@@ -6,7 +6,7 @@ const NotificacionMedicaSchema = new mongoose.Schema({
     
     // Rol para saber a quién va dirigida y segmentar rápido en las consultas
     // Ej: 'MEDICO' o 'PACIENTE'
-    rolDestinatario: { type: String, enum: ['DOCTOR', 'GUEST'], required: true },
+    rolDestinatario: { type: String, enum: ['DOCTOR', 'PACIENTE', 'GUEST'], required: true },
 
     titulo: { type: String, required: true },
     mensaje: { type: String, required: true },

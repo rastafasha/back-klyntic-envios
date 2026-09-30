@@ -8,9 +8,7 @@ const guardarSuscripcion = async (req, res) => {
     try {
         const subscription = req.body;
         
-        // 🟢 RESPALDO CONTRA EL 500: Si req.uid viene nulo del middleware por desfase del token, 
-        // buscamos si viene en los headers o dejamos un string vacío temporal para evitar que truene.
-        const uid = req.uid || req.header('x-uid') || 'GUEST_USER'; 
+        const uid = req.uid || req.header('x-uid') || 'GUEST'; 
 
         if (!subscription || !subscription.endpoint) {
             return res.status(400).json({ ok: false, msg: 'Suscripción inválida o incompleta' });
@@ -24,9 +22,6 @@ const guardarSuscripcion = async (req, res) => {
         );
 
         // 🔒 AISLAMIENTO DEL MENSAJE DE BIENVENIDA:
-        // Envolvemos el envío en su propio try/catch. Si el servicio de Web Push de Google/Apple 
-        // o las llaves VAPID fallan en el primer milisegundo, se registra el error en consola, 
-        // pero la petición HTTP terminará con éxito (201) hacia Angular. ¡Adiós desfase!
         try {
             await sendNotification(
                 subscription, 
@@ -39,10 +34,8 @@ const guardarSuscripcion = async (req, res) => {
             console.log('🔔 Mensaje de bienvenida enviado con éxito');
         } catch (pushError) {
             console.warn('⚠️ No se pudo enviar el push de bienvenida inmediato:', pushError.message);
-            // No hacemos nada más; dejamos que el flujo principal continúe de forma segura
         }
         
-        // Retornamos éxito garantizado a Angular al primer intento
         return res.status(201).json({ ok: true, msg: 'Suscripción guardada con éxito' });
 
     } catch (error) {
