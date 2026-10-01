@@ -19,7 +19,7 @@ router.post('/webhook-recordatorio', validarWebhookLaravel, recibirAlertaDesdeLa
 
 // 🟢 SOLUCIÓN AL 401: Colocamos la consulta del usuario AQUÍ arriba, antes de proteger el archivo con validarJWT.
 // Esto permite que el 'cargarContadorInicial' de tu Angular lea el historial de MongoDB sin ser rebotado.
-router.get('/usuario/:id', obtenerHistorialMedico);
+router.get('/usuario/:id', validarJWT, obtenerHistorialMedico);
 
 
 // 2. Endpoints protegidos o de uso exclusivo del sistema
@@ -48,8 +48,8 @@ router.use(validarJWT);
 router.get('/unread-count', obtenerContadorMedico);
 router.put('/:id', marcarUnaLeidaMedica);
 router.post('/enviar-notificacion', enviarNotificacionPaciente);
-router.get('/historial', obtenerHistorialMedico);
-router.delete('/por_id/:id', borrarNotificacionMedicaPorId);
-router.delete('/limpiar/todas', borrarTodasLasNotificacionesMedicas);
+router.get('/historial', validarJWT, obtenerHistorialMedico);
+router.delete('/por_id/:id', validarJWT, borrarNotificacionMedicaPorId);
+router.delete('/limpiar/todas', validarJWT, borrarTodasLasNotificacionesMedicas);
 
 module.exports = router;

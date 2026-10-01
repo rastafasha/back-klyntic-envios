@@ -64,7 +64,8 @@ const corsOptions = {
     allowedHeaders: [
         "Content-Type", 
         "Authorization", 
-        "x-token", 
+        'x-token', // 👈 ¡INDISPENSABLE! Permitir en minúscula
+        'X-Token',  // 👈 Permitir en mayúscula para Chrome
         "Accept", 
         "auth_token", 
         "x-uid", 
