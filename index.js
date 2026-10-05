@@ -51,15 +51,14 @@ const corsOptions = {
     origin: (origin, callback) => {
         if (!origin) return callback(null, true);
 
-        // 🟢 UNIFICADO: Esta única expresión regular valida:
-        // 1. Cualquier subdominio de administración: https://klyntic.com
-        // 2. El dominio principal y sus subdominios base: https://klyntic.com o https://klyntic.com
-        const esSubdominioKlyntic = /^https?:\/\/([a-zA-Z0-9-]+\.)*klyntic\.com\$/.test(origin);
+        // 1. Validar dinámicamente cualquier dominio o subdominio que termine en klyntic.com
+        // .endsWith() es inmune a la profundidad de los subdominios anidados como "clinica-prueba.admin"
+        const esDominioKlyntic = origin.endsWith('klyntic.com');
 
-        // Verificación de tu lista blanca fija (localhost, etc.)
+        // 2. Validar tu lista blanca fija de desarrollo (localhost)
         const esOrigenPermitidoFijo = allowedOrigins.includes(origin);
 
-        if (esSubdominioKlyntic || esOrigenPermitidoFijo) {
+        if (esDominioKlyntic || esOrigenPermitidoFijo) {
             callback(null, true);
         } else {
             console.log(`[CORS RECHAZADO]: El origen ${origin} no tiene permisos.`);
