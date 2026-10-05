@@ -44,14 +44,22 @@ const allowedOrigins = [
     "https://pconsultorio.klyntic.com",
 ];
 
+
+
 // Configuración compartida inteligente para SaaS Multi-Tenant
 const corsOptions = {
     origin: (origin, callback) => {
         if (!origin) return callback(null, true);
 
-        const esSubdominioKlyntic = /\.klyntic\.com\$/.test(origin) || origin === "https://klyntic.com" || origin === "http://klyntic.com";
+        // 🟢 UNIFICADO: Esta única expresión regular valida:
+        // 1. Cualquier subdominio de administración: https://klyntic.com
+        // 2. El dominio principal y sus subdominios base: https://klyntic.com o https://klyntic.com
+        const esSubdominioKlyntic = /^https?:\/\/([a-zA-Z0-9-]+\.)*klyntic\.com\$/.test(origin);
 
-        if (esSubdominioKlyntic || allowedOrigins.includes(origin)) {
+        // Verificación de tu lista blanca fija (localhost, etc.)
+        const esOrigenPermitidoFijo = allowedOrigins.includes(origin);
+
+        if (esSubdominioKlyntic || esOrigenPermitidoFijo) {
             callback(null, true);
         } else {
             console.log(`[CORS RECHAZADO]: El origen ${origin} no tiene permisos.`);
@@ -62,16 +70,16 @@ const corsOptions = {
     // 🛡️ Autoriza explícitamente al navegador a enviar los tokens e identificadores de Angular
     // 🟢 CORRECCIÓN: Agregadas 'x-uid', 'X-Tenant-Slug' y 'X-Clinica-Slug' para liberar el Preflight
     allowedHeaders: [
-        "Content-Type", 
-        "Authorization", 
+        "Content-Type",
+        "Authorization",
         'x-token', // 👈 ¡INDISPENSABLE! Permitir en minúscula
         'X-Token',  // 👈 Permitir en mayúscula para Chrome
-        "Accept", 
-        "auth_token", 
-        "x-uid", 
-        "x-tenant-slug", 
-        "X-Tenant-Slug", 
-        "X-Clinica-Slug", 
+        "Accept",
+        "auth_token",
+        "x-uid",
+        "x-tenant-slug",
+        "X-Tenant-Slug",
+        "X-Clinica-Slug",
         "x-clinica-slug"
     ],
 
@@ -117,7 +125,7 @@ const startServer = async () => {
         // =========================================================================
         // ⚙️ MIDDLEWARES GLOBALES (¡DEBEN IR ANTES DE LAS RUTAS!)
         // =========================================================================
-        app.use(express.json()); 
+        app.use(express.json());
         app.use(express.urlencoded({ extended: true }));
 
         // 🔥 LA CORRECCIÓN: Inyectamos el objeto IO global en cada petición HTTP
@@ -132,7 +140,7 @@ const startServer = async () => {
             "publicKey": process.env.VAPI_KEY_PUBLIC || process.env.VAPID_PUBLIC_KEY,
             "privateKey": process.env.VAPI_KEY_PRIVATE || process.env.VAPID_PRIVATE_KEY
         };
-        
+
         webpush.setVapidDetails(
             'mailto:mercadocreativo@gmail.com',
             vapidKeys.publicKey,
@@ -145,11 +153,11 @@ const startServer = async () => {
         app.use('/api/notipush', require('./routes/notipush'));
         app.use('/api/klyntic/notificaciones', require('./routes/notificacionesKlynticRoutes'));
         app.use('/api/klyntic/consultorios', require('./routes/consultoriosRoutes'));
-        
+
         // 🟢 ADICIÓN SALVAVIDAS: Registramos la ruta que Laravel está llamando en el Webhook
         // Vinculamos el endpoint a tu controlador de envíos/alertas
-        app.use('/api/recursos', require('./routes/envio')); 
-        
+        app.use('/api/recursos', require('./routes/envio'));
+
         app.use('/api/tasadollarbcv', require('./routes/tasadollarbcv'));
         app.use('/api/tasaeurobcv', require('./routes/tasaeurobcv'));
         app.use('/api/tasapersonalizada', require('./routes/tasapersonalizada'));
