@@ -42,6 +42,7 @@ const allowedOrigins = [
     "http://localhost:4300",
     "https://consultorio.klyntic.com",
     "https://pconsultorio.klyntic.com",
+    "https://paciente.klyntic.com",
 ];
 
 
